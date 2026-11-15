@@ -17,9 +17,9 @@ import { tokenizeBlock } from "../grammar/tokenize";
 import { orderIdxAfter } from "../outline/orderIdx";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
-import { matchesFilter, parseFilter, type FilterRow } from "./filter";
+import type { FilterRow } from "./filter";
 import { columnName, defaultColumns, recordRow } from "./records";
-import { sortRows } from "./sort";
+import { viewRows } from "./viewRows";
 import type { ViewDefaults, ViewFields } from "./viewState";
 
 /** The title column's name, in filters, sorts and DataTable keys. */
@@ -71,22 +71,11 @@ export function shownRows(
   live: ViewFields, frozen: readonly string[] | null,
 ): { rows: ShownRow[]; matching: number } {
   const labels = new Map(columns.map((c) => [c.key, c.label]));
-  const terms = parseFilter(live.filter);
-  const searched = [RESULT, SOURCE, ...columns.map((c) => c.name)];
-  const all = records.map((record) => {
-    const row = recordRow(record, labels);
-    return { record, row, stale: !matchesFilter(row, terms, searched) };
-  });
-  if (frozen !== null) {
-    const byId = new Map(all.map((r) => [r.record.key, r]));
-    const rows = frozen.flatMap((id) => byId.get(id) ?? []);
-    return { rows, matching: rows.filter((r) => !r.stale).length };
-  }
-  const kept = all.filter((r) => !r.stale);
-  const sort = live.sort;
-  const rows = sort === null ? kept
-    : sortRows(kept, (r) => r.row[sort.col], sort.dir);
-  return { rows, matching: rows.length };
+  const { rows, matching } = viewRows(
+    records, (r) => r.key, (r) => recordRow(r, labels),
+    [RESULT, SOURCE, ...columns.map((c) => c.name)], live, frozen);
+  return { rows: rows.map(({ item, row, stale }) => ({ record: item, row, stale })),
+           matching };
 }
 
 const sameOptions = (a: MacroOptions, b: MacroOptions): boolean =>

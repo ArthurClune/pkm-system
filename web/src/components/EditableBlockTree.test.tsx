@@ -23,7 +23,8 @@ function handlers(): OutlineHandlers {
     onBackspaceAtStart: vi.fn(),
     onArrow: vi.fn(), onToggleCollapsed: vi.fn(), onSetHeading: vi.fn(),
     onSetViewType: vi.fn(),
-    onToggleTodo: vi.fn(), onSetText: vi.fn(), onFiles: vi.fn(() => Promise.resolve(false)),
+    onToggleTodo: vi.fn(), onSetText: vi.fn(), onEditInBlock: vi.fn(() => false),
+    onFiles: vi.fn(() => Promise.resolve(false)),
     onGoodlinks: vi.fn(), onCopyNotice: vi.fn(), onLinkLocalFile: vi.fn(), onPasteOutline: vi.fn(),
     onStartBlockSelection: vi.fn(), onSelectBlock: vi.fn(),
     onExtendBlockSelection: vi.fn(),
@@ -710,7 +711,7 @@ test("editable rendering numbers direct children only", () => {
     .toEqual(["", "1.", "2.", "", "1."]);
 });
 
-test("a rendered Roam table focuses its macro and reveals raw editable blocks", () => {
+test("a rendered Roam table opens its macro from Edit as text and reveals raw editable blocks", async () => {
   const h = handlers();
   const macro = block("tuid-table", "{{[[table]]}}", { collapsed: true, children: [
     block("header", "Model", { children: [block("header-2", "Price")] }),
@@ -722,7 +723,11 @@ test("a rendered Roam table focuses its macro and reveals raw editable blocks", 
     </MemoryRouter>,
   );
 
-  fireEvent.click(screen.getByRole("table"));
+  await screen.findByText("1 of 1 rows");
+  fireEvent.click(screen.getByText("Claude"));
+  fireEvent.click(screen.getByRole("button", { name: "Model" }));
+  expect(h.onFocusBlock).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Edit as text" }));
   expect(h.onFocusBlock).toHaveBeenCalledWith("tuid-table", "{{[[table]]}}".length);
 
   view.rerender(

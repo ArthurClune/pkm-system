@@ -456,3 +456,40 @@ describe("DataTable suggestions and hints", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 });
+
+describe("DataTable openCell", () => {
+  it("opens the requested cell once its row renders, then reports it", () => {
+    const onCellOpened = vi.fn();
+    const props = { openCell: { row: "c", col: "status" }, onCellOpened };
+    const { rerender, onWrite, onSortClick } = mount(props);
+    expect(editor()).toBeNull();
+    expect(onCellOpened).not.toHaveBeenCalled();
+
+    const added: Row = { id: "c", name: "Gamma", status: "new", year: "" };
+    rerender(<DataTable columns={COLUMNS} rows={[...ROWS, added]} rowId={(r) => r.id}
+                        renderCell={(r, c) => r[c.key as keyof Row]}
+                        rawValue={(r, c) => r[c.key as keyof Row]}
+                        sort={null} onSortClick={onSortClick} canEdit
+                        onWrite={onWrite} {...props} />);
+    expect(editor().value).toBe("new");
+    expect(document.activeElement).toBe(editor());
+    expect(onCellOpened).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DataTable headings", () => {
+  it("shows a column's heading in place of its label", () => {
+    mount({ columns: [{ ...COLUMNS[0]!, heading: <em>Rich name</em> },
+                      ...COLUMNS.slice(1)] });
+    expect(screen.getByRole("button", { name: "Rich name" })).toBeInTheDocument();
+  });
+
+  it("a click on a link in a heading follows the link and does not sort", () => {
+    const { onSortClick } = mount({ columns: [
+      { ...COLUMNS[0]!, heading: <a href="#page">Page</a> }, ...COLUMNS.slice(1)] });
+    fireEvent.click(screen.getByRole("link", { name: "Page" }));
+    expect(onSortClick).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Page" }));
+    expect(onSortClick).toHaveBeenCalledWith("name");
+  });
+});

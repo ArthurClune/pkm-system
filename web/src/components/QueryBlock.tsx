@@ -2,9 +2,8 @@
 // A {{query}} block. Its results UI (tables, cards, the cell editor) loads
 // on the first query rendered, mirroring PdfEmbed's viewer, so pages
 // without a query never pay for it in the entry chunk.
-import { useEffect, useState, type ComponentType } from "react";
 import type { MacroOptions } from "../grammar/macroOptions";
-import type { QueryResultsProps } from "./QueryResults";
+import { lazyLoader, useLazy } from "./lazyComponent";
 
 // A query whose results contain another {{query}} (e.g. a self-matching
 // block) would otherwise re-mount an identical QueryBlock and recurse
@@ -13,21 +12,7 @@ const MAX_DEPTH = 2;
 
 const NO_OPTIONS: MacroOptions = {};
 
-let resultsPromise: Promise<ComponentType<QueryResultsProps>> | null = null;
-
-function loadResults(): Promise<ComponentType<QueryResultsProps>> {
-  if (!resultsPromise) {
-    resultsPromise = import("./QueryResults").then((m) => m.QueryResults);
-    // A failed chunk load shouldn't wedge every future query.
-    resultsPromise.catch(() => { resultsPromise = null; });
-  }
-  return resultsPromise;
-}
-
-type Loaded =
-  | { status: "loading" }
-  | { status: "ok"; Results: ComponentType<QueryResultsProps> }
-  | { status: "error"; message: string };
+const loadResults = lazyLoader(() => import("./tablesChunk").then((m) => m.QueryResults));
 
 export function QueryBlock({ expr, options = NO_OPTIONS, depth = 0 }: {
   expr: string;
@@ -35,15 +20,7 @@ export function QueryBlock({ expr, options = NO_OPTIONS, depth = 0 }: {
   depth?: number;
 }) {
   const capped = depth >= MAX_DEPTH;
-  const [loaded, setLoaded] = useState<Loaded>({ status: "loading" });
-  useEffect(() => {
-    if (capped) return;
-    let live = true;
-    loadResults().then(
-      (Results) => { if (live) setLoaded({ status: "ok", Results }); },
-      (e: unknown) => { if (live) setLoaded({ status: "error", message: String(e) }); });
-    return () => { live = false; };
-  }, [capped]);
+  const loaded = useLazy(loadResults, capped);
 
   if (capped) {
     // Inert placeholder matching the pre-live fallback: no fetch, no results.
@@ -60,6 +37,6 @@ export function QueryBlock({ expr, options = NO_OPTIONS, depth = 0 }: {
     );
   }
   // A new expression is a new query: its view and records start afresh.
-  const { Results } = loaded;
+  const Results = loaded.value;
   return <Results key={expr} expr={expr} options={options} depth={depth} />;
 }

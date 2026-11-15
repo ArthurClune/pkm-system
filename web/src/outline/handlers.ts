@@ -9,8 +9,9 @@
 // union + dispatcher: every member is already a distinct, named,
 // individually-typed operation, and the union would add a second name and a
 // switch for each one without removing a single case.
-import type { BlockUid } from "../api/brands";
-import type { HeadingLevel } from "../api/ops";
+import type { BlockUid, CanonicalTitle } from "../api/brands";
+import type { BlockOp, HeadingLevel } from "../api/ops";
+import type { BlockNode } from "../api/payloads";
 import type { LocalFile } from "./localFiles";
 
 export interface OutlineHandlers {
@@ -67,6 +68,15 @@ export interface OutlineHandlers {
   /** Replace the block's whole text, as one undo step: what a surface
    * rendered inside the block (a query's Save, a table cell) writes. */
   onSetText(uid: BlockUid, text: string): void;
+  /** Apply the ops `plan` makes from `uid`'s block as the tree holds it
+   * now, as one undo step, leaving focus alone. False when nothing was
+   * applied: the block is gone, the plan made no ops, or a limit refused
+   * them. A surface inside a block that writes more than its text (a
+   * table's new row, a padding cell's chain) passes its own planner, so the
+   * planner stays in that surface's lazy chunk. */
+  onEditInBlock(uid: BlockUid,
+                plan: (node: BlockNode, pageTitle: CanonicalTitle) => BlockOp[],
+  ): boolean;
   /** Resolves once the uploads have finished: true when something landed
    * (each upload as its own block after `uid`, or in `uid` when it was
    * empty), false when nothing did (every upload failed, or the command was

@@ -301,6 +301,15 @@ export function useOutline(
   }, [releaseUnshownDraft, draftRefusal, takePendingDraft,
       markRefusedPending, pageTitle, sync, setNotice]);
 
+  const edit = useCallback((uid: BlockUid, plan: (node: BlockNode,
+                            title: CanonicalTitle) => BlockOp[]): boolean =>
+    run((b) => {
+      const node = findNode(b, uid);
+      const ops = node ? plan(node, pageTitle) : [];
+      return { blocks: ops.length > 0 ? applyOps(b, ops, pageTitle) : b, ops,
+               focus: null };
+    }), [run, pageTitle]);
+
   /** Save the pending draft now. False when run() kept it unsaved, and the
    * caller must then leave the editor on its block. */
   const flushNow = useCallback((): boolean => {
@@ -527,20 +536,13 @@ export function useOutline(
       run((b) => setHeading(b, pageTitle, uid, heading)),
     onSetViewType: (uid, viewType) =>
       run((b) => setViewType(b, pageTitle, uid, viewType)),
-    onToggleTodo: (uid) => run((b) => {
-      const node = findNode(b, uid);
-      const flipped = node ? toggleTodo(node.text) : null;
-      if (flipped === null) return { blocks: b, ops: [], focus: null };
-      const ops: BlockOp[] = [{ op: "update_text", uid, text: flipped }];
-      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
+    onToggleTodo: (uid) => edit(uid, (n) => {
+      const flipped = toggleTodo(n.text);
+      return flipped === null ? [] : [{ op: "update_text", uid, text: flipped }];
     }),
-    onSetText: (uid, text) => run((b) => {
-      if ((findNode(b, uid)?.text ?? text) === text) {
-        return { blocks: b, ops: [], focus: null };
-      }
-      const ops: BlockOp[] = [{ op: "update_text", uid, text }];
-      return { blocks: applyOps(b, ops, pageTitle), ops, focus: null };
-    }),
+    onSetText: (uid, text) => edit(uid, (n) =>
+      n.text === text ? [] : [{ op: "update_text", uid, text }]),
+    onEditInBlock: edit,
     onFiles: (uid, files) => uploadAndPlace(files, [],
       (b, texts, uids) => planUploadBlocks(b, pageTitle, uid, texts, uids,
                                            focusRef.current?.uid ?? null)),
@@ -667,7 +669,7 @@ export function useOutline(
     onRefusedEdit: (notice) => setNotice("edit", notice),
     onCopyNotice: (text) => setNotice(
       "copy", text === null ? null : copyFailedNotice(text)),
-  }), [run, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
+  }), [run, edit, flushNow, flushOtherDraft, markRefusedPending, pageTitle,
       selection, sync, confirm, uploadAndPlace, setNotice]);
 
   const dnd = useMemo<OutlineDndApi>(() => ({

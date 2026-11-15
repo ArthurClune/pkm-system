@@ -16,6 +16,9 @@ export interface Column {
   label: string;
   editable: boolean;
   numeric?: boolean;
+  /** Shown in the header in place of `label`; a click on a link in it
+   * follows the link instead of sorting. */
+  heading?: ReactNode;
 }
 
 export interface DataTableProps<R> {
@@ -38,13 +41,18 @@ export interface DataTableProps<R> {
   suggest?: (r: R, c: Column, typed: string) => Suggestion[];
   /** Rendered in each header after its sort button: a column menu. */
   headerMenu?: (c: Column) => ReactNode;
+  /** A cell to open as soon as its row renders, as a new row's first cell;
+   * onCellOpened says it has been, so the caller can drop the request. */
+  openCell?: CellRef | null;
+  onCellOpened?: () => void;
 }
 
 const IDLE: EditorState = { kind: "idle" };
 
 export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                                sort, onSortClick, staleIds, canEdit, onWrite,
-                               cellHint, suggest, headerMenu }: DataTableProps<R>) {
+                               cellHint, suggest, headerMenu, openCell,
+                               onCellOpened }: DataTableProps<R>) {
   const [editor, setEditor] = useState<EditorState>(IDLE);
   // Read by dispatch, which can run twice before a re-render (the capture
   // mousedown commits, then the click opens another cell).
@@ -112,6 +120,19 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
     }
   });
 
+  // Each request opens once: opening it again would drop the draft typed
+  // since.
+  const openedRequest = useRef<CellRef | null>(null);
+  useEffect(() => {
+    if (!openCell || openedRequest.current === openCell) return;
+    const r = byId.get(openCell.row);
+    const c = byKey.get(openCell.col);
+    if (r === undefined || c === undefined) return;
+    openedRequest.current = openCell;
+    onCellOpened?.();
+    if (editable(c)) open(r, c);
+  });
+
   // A table unmounted with a cell open (keyboard navigation away) commits
   // it. React runs the host's effect cleanups before this one, so onWrite
   // may be called after the host's own cleanup, in the same commit.
@@ -154,8 +175,10 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
               const dir = sort?.col === c.key ? sort.dir : null;
               const button = (
                 <button type="button" className="data-table-sort"
-                        onClick={() => onSortClick(c.key)}>
-                  {c.label}
+                        onClick={(e) => {
+                          if (!(e.target as Element).closest("a")) onSortClick(c.key);
+                        }}>
+                  {c.heading ?? c.label}
                   {dir !== null && (
                     <span className="data-table-arrow" aria-hidden="true">
                       {dir === "asc" ? "▲" : "▼"}

@@ -414,3 +414,37 @@ it("onSetText with the text a block already holds sends nothing", () => {
   act(() => outline().handlers.onSetText(uidOf("tuid-gone"), "x"));
   expect(sync.sent).toHaveLength(0);
 });
+
+it("onEditInBlock applies a planned batch as one undo step", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  let applied = false;
+  act(() => {
+    applied = outline().handlers.onEditInBlock(uidOf("tuid-a"), (node, title) => [
+      { op: "create", uid: uidOf("tuid-a1"), page_title: title, parent_uid: node.uid,
+        order_idx: orderIdxOf(0), text: "" },
+      { op: "create", uid: uidOf("tuid-a2"), page_title: title,
+        parent_uid: uidOf("tuid-a1"), order_idx: orderIdxOf(0), text: "x" },
+    ]);
+  });
+  expect(applied).toBe(true);
+  expect(outline().blocks[0].children[0]?.children[0]?.text).toBe("x");
+  expect(outline().focus).toBeNull();
+  expect(sync.sent).toHaveLength(1);
+  act(() => { outline().handlers.onUndo(); });
+  expect(outline().blocks[0].children).toEqual([]);
+});
+
+it("onEditInBlock on a missing block or an empty plan sends nothing", () => {
+  const sync = makeSync();
+  const outline = setup(sync, PAGE, ab());
+  const plan = vi.fn(() => []);
+  let applied = true;
+  act(() => { applied = outline().handlers.onEditInBlock(uidOf("tuid-gone"), plan); });
+  expect(plan).not.toHaveBeenCalled();
+  expect(applied).toBe(false);
+  act(() => { applied = outline().handlers.onEditInBlock(uidOf("tuid-a"), plan); });
+  expect(plan).toHaveBeenCalledTimes(1);
+  expect(applied).toBe(false);
+  expect(sync.sent).toHaveLength(0);
+});

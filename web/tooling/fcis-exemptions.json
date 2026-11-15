@@ -4,6 +4,7 @@
   "src/api/payloads.ts": "Type-only re-exports of generated OpenAPI response shapes (src/api/types.d.ts) -- no runtime declarations, nothing to classify.",
   "src/outline/handlers.ts": "Type-only declaration of the editor's command port (the interface useOutline implements and the components call) -- no runtime declarations, nothing to classify.",
   "src/components/beautifulMermaid.ts": "Bare re-export of the beautiful-mermaid package -- exists to name the lazy chunk and give tests a mock seam (see the file's own comment); no runtime declarations of its own, nothing to classify.",
+  "src/components/tablesChunk.ts": "Bare re-export of PlainTable and QueryResults -- exists so both lazy loaders import one chunk (see the file's own comment); no runtime declarations of its own, nothing to classify.",
   "src/router.ts": "Static React Router future-flag constants shared by main.tsx and every test's MemoryRouter -- a config value, not FCIS logic to classify.",
   "src/assistant/previewKeys.gen.ts": "Generated verbatim from server/src/pkm/assistant/wire_dump.py (the keys each approval-card action may carry, a constant map) -- data, not hand-written logic; see the file's own generated-file comment.",
   "src/assistant/events.gen.ts": "Generated verbatim from server/src/pkm/assistant/wire_dump.py (the assistant's SSE event union and its event names, a type and a constant set) -- data, not hand-written logic; see the file's own generated-file comment.",

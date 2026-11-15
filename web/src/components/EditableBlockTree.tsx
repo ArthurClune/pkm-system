@@ -21,7 +21,7 @@ import { decideSelectionKey } from "../outline/keyboardPolicy";
 import { selectedUids, selectionText,
          type BlockSelection } from "../outline/blockSelection";
 import { ancestorChain, findNode, hidesChildren } from "../outline/tree";
-import { roamTableRows } from "../outline/roamTableRows";
+import { roamTable } from "../outline/roamTableRows";
 import { formatStamp, formatStampTitle, stampBand,
          stampTs } from "../outline/blockStamps";
 import type { LocalFile } from "../outline/localFiles";
@@ -29,6 +29,7 @@ import { BlockInput } from "./BlockInput";
 import { BlockMenu } from "./BlockMenu";
 import { BlockRefBacklinksPopover } from "./BlockRefBacklinksPopover";
 import { InlineSegments } from "./InlineSegments";
+import { lazyLoader } from "./lazyComponent";
 import { RoamTable } from "./roamTable";
 import { TocBlock } from "./TableOfContents";
 import { quoteContent } from "./blockPresentation";
@@ -43,19 +44,8 @@ type PickerComponent = ComponentType<{
 const PICKER_LOAD_FAILED = "Couldn't load the file picker; try again";
 
 // Loaded on first use so the picker and fzf, which only it reaches, stay out
-// of the entry chunk. The cached promise is cleared on failure, so the next
-// request retries instead of replaying the rejection.
-let pickerPromise: Promise<PickerComponent> | null = null;
-
-function loadPicker(): Promise<PickerComponent> {
-  if (!pickerPromise) {
-    pickerPromise = import("./LocalFilePicker").then((m) => m.LocalFilePicker);
-    pickerPromise.catch(() => {
-      pickerPromise = null;
-    });
-  }
-  return pickerPromise;
-}
+// of the entry chunk.
+const loadPicker = lazyLoader(() => import("./LocalFilePicker").then((m) => m.LocalFilePicker));
 
 interface TreeProps {
   blocks: BlockNode[];
@@ -446,9 +436,9 @@ const EditableBlock = memo(function EditableBlock(
     node.heading === 3 ? "h3" : "div";
   const quoted = quoteContent(node.text);
   const childrenView = effectiveChildView(node.view_type);
-  const tableRows = roamTableRows(node);
+  const table = roamTable(node);
   const editingTableSubtree = focusChain.has(node.uid);
-  const showTable = !editingTableSubtree && tableRows !== null;
+  const showTable = !editingTableSubtree && table !== null;
   // A toc renders whenever this row isn't the focused one -- unlike a table,
   // whose raw rows are its children, so editing anywhere in the subtree has
   // to reveal them. A toc's children are ordinary blocks and keep rendering.
@@ -529,7 +519,8 @@ const EditableBlock = memo(function EditableBlock(
                         if (!fallback) handlers.onFocusBlock(node.uid, node.text.length);
                       }}>
             {showTable
-              ? <RoamTable rows={tableRows!} />
+              ? <RoamTable node={node} rows={table!.rows} options={table!.options}
+                           handlers={handlers} editable={!readOnly && !fallback} />
               : showToc
               ? <TocBlock selfUid={node.uid} />
               : <BlockEditContext.Provider

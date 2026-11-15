@@ -36,8 +36,13 @@ describe("compareCells", () => {
     expect(compareCells("a2", "a10", "asc")).toBeLessThan(0);
   });
 
-  it("falls back to text for mixed kinds", () => {
-    expect(compareCells("Jan 2026", "apple", "asc")).toBeGreaterThan(0);
+  it("ranks dates, then numbers, then text, then blanks", () => {
+    expect(
+      sorted(["forthcoming", "", "7", "Mar 2026", "Jan 2026", "apple"], "asc"),
+    ).toEqual(["Jan 2026", "Mar 2026", "7", "apple", "forthcoming", ""]);
+    expect(
+      sorted(["forthcoming", "", "7", "Mar 2026", "Jan 2026"], "desc"),
+    ).toEqual(["forthcoming", "7", "Mar 2026", "Jan 2026", ""]);
   });
 });
 

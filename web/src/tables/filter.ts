@@ -71,7 +71,7 @@ function holds(
 ): boolean {
   let searched = columns;
   if (term.col !== null) {
-    const prefix = term.col.toLowerCase();
+    const prefix = wordsOf(term.col)[0] ?? "";
     searched = columns.filter((c) =>
       wordsOf(c).some((w) => w.startsWith(prefix)),
     );

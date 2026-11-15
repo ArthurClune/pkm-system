@@ -35,13 +35,20 @@ function leadingNumber(text: string): number | null {
   return Number.isNaN(n) ? null : n;
 }
 
+/** Dates rank before numbers, numbers before text. */
+function classify(text: string): { rank: number; num: number } {
+  const date = dateKey(text);
+  if (date !== null) return { rank: 0, num: date };
+  const n = leadingNumber(text);
+  if (n !== null) return { rank: 1, num: n };
+  return { rank: 2, num: 0 };
+}
+
 function compareValues(a: string, b: string): number {
-  const da = dateKey(a);
-  const db = dateKey(b);
-  if (da !== null && db !== null) return Math.sign(da - db);
-  const na = leadingNumber(a);
-  const nb = leadingNumber(b);
-  if (na !== null && nb !== null) return Math.sign(na - nb);
+  const ca = classify(a);
+  const cb = classify(b);
+  if (ca.rank !== cb.rank) return ca.rank - cb.rank;
+  if (ca.rank < 2) return Math.sign(ca.num - cb.num);
   return Math.sign(
     a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
   );

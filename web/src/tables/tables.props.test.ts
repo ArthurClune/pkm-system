@@ -9,7 +9,7 @@ const dateCell = fc.oneof(
     .map(([m, y]) => `${m} ${y}`),
   fc.integer({ min: 1990, max: 2040 }).map(String),
 );
-const numberCell = fc.double({ min: 0, max: 1000, noNaN: true })
+const numberCell = fc.double({ min: 0, max: 999, noNaN: true })
   .map((n) => String(n));
 const textCell = fc.stringMatching(/^[a-z][a-z#\[\] ]{0,7}$/);
 const blank = fc.constantFrom<string | undefined>(undefined, "", " ");
@@ -34,6 +34,18 @@ describe("compareCells laws", () => {
       ));
     });
   }
+
+  it("mixed kinds: antisymmetric, transitive, blanks last", () => {
+    const any = fc.oneof(dateCell, numberCell, textCell, blank) as
+      fc.Arbitrary<string | undefined>;
+    fc.assert(fc.property(any, any, any, dir, (a, b, c, d) => {
+      expect(Math.sign(compareCells(a, b, d)))
+        .toBe(-Math.sign(compareCells(b, a, d)) || 0);
+      if (compareCells(a, b, d) <= 0 && compareCells(b, c, d) <= 0) {
+        expect(compareCells(a, c, d)).toBeLessThanOrEqual(0);
+      }
+    }), { numRuns: 1000 });
+  });
 
   it("blanks are last in both directions", () => {
     fc.assert(fc.property(

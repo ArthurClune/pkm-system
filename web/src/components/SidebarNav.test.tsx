@@ -344,3 +344,26 @@ it("a resync refetches the entries", async () => {
   await screen.findByRole("link", { name: "AWS" });
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
+
+it("a resync after a failed first load shows the entries", async () => {
+  // An offline cold start: the first read fails before the replica is ready,
+  // and the bump fired when it turns ready must bring the entries in.
+  let fail = true;
+  const fetchMock = vi.fn(async () => fail
+    ? new Response("", { status: 503 })
+    : jsonResponse({ entries: [{ id: 1, title: "AI" }] }));
+  vi.stubGlobal("fetch", fetchMock);
+  const tree = (generation: number) => (
+    <SyncContext.Provider
+      value={makeSync("reconnecting", { resyncGeneration: generation })}>
+      <MemoryRouter><SidebarNav /></MemoryRouter>
+    </SyncContext.Provider>
+  );
+  const { rerender } = render(tree(0));
+  expect(await screen.findByText(/couldn.t load/i)).toBeInTheDocument();
+
+  fail = false;
+  rerender(tree(1));
+  await screen.findByRole("link", { name: "AI" });
+  expect(screen.queryByText(/couldn.t load/i)).toBeNull();
+});

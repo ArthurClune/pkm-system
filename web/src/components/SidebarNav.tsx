@@ -39,9 +39,13 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   // stale entries or interleaves its refresh with the in-flight one's.
   const laneRef = useRef<Promise<void>>(Promise.resolve());
 
+  // Clears a failed first load: on an offline cold start that read can beat
+  // the replica's opening, and the resync fired once it is ready is the only
+  // later read.
   function applyEntries(list: SidebarNavEntry[]) {
     entriesRef.current = list;
     setEntries(list);
+    setError(false);
   }
 
   const refresh = () =>

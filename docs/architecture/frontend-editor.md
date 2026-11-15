@@ -1,10 +1,11 @@
 # Frontend: the outline editor (`web/src/outline/`)
 
 This doc covers the outline engine: the per-title sessions that own a block
-tree, and the editor that mutates one. [frontend.md](frontend.md) holds the
-app shell around it. The cases a block's draft meets sit under the same
-section names in [contracts/frontend-editor.md](contracts/frontend-editor.md),
-which the draft property model is written from.
+tree, the editor that mutates one, and the tables edited inside a block
+(`web/src/tables/`). [frontend.md](frontend.md) holds the app shell around
+it. The cases these meet sit under the same section names in
+[contracts/frontend-editor.md](contracts/frontend-editor.md), which the
+property models are written from.
 
 ## Module map
 
@@ -153,6 +154,22 @@ Everything the UI can ask the editor to do is the `OutlineHandlers` port in
 `EditableBlock` and `BlockInput` only call it, so the engine never imports
 UI code. An eslint ban on `src/outline/**` keeps that true, so a type the
 engine needs from a component moves into `outline/`.
+
+A surface rendered inside a block writes to it through two handlers:
+
+| Handler | Writes | Used by |
+|---|---|---|
+| `onSetText(uid, text)` | the block's whole text | a query's Save |
+| `onEditInBlock(uid, plan)` | the ops `plan` makes from the block as the tree holds it now | a plain table's cell writes, "+ New row" and Save |
+
+Each is one undo step, leaves focus alone, and returns false when nothing
+was written. A caller marks a view saved only on true, so a refused write
+leaves Reset and Save showing. The caller passes the plan so the table
+planners stay in the tables chunk, out of the entry chunk `useOutline` sits
+in. **A plan only creates blocks and rewrites texts inside `uid`'s
+subtree.** Its type admits only `CreateOp` and `UpdateTextOp`, but nothing
+checks the subtree. A move or a delete belongs to a handler that confirms
+and guards it.
 
 ### Navigating to a block
 
@@ -391,3 +408,80 @@ does not record it in history.
 | Over a textarea | the zone ignores it; `BlockInput` hands the files to `onFiles` (`planUploadBlocks`) |
 | Drop | `useOutline.onDropFiles` uploads in turn, then one `run()` adds a block per file. Focus stays put, or the block would show raw markdown |
 | Parent gone | `planFileDropBlocks` appends at the end of the page |
+
+## Tables
+
+`web/src/tables/` is the table UI that a `{{table}}` block
+(`components/PlainTable.tsx`) and a query's table view (`QueryTable`) share:
+`DataTable` with its sort headers and one open cell, `TableToolbar`'s filter
+and saved-view controls, and the view state. It loads as one lazy chunk
+([frontend-rendering.md § Lazy renderers](frontend-rendering.md#lazy-renderers-and-their-caches)).
+The two hosts differ in where a write lands:
+
+| | Plain `{{table}}` | Query table |
+|---|---|---|
+| A cell is | a block in the table's subtree | a record's `Key::` line, usually on another page |
+| A write goes through | `onEditInBlock`, as one outline undo step | `useCellWrites`: `enqueue` scoped to the record's page, and `applyLocal` on that page's open session |
+| Undone by | Cmd-Z, like any outline edit | the `WriteNotice`'s Undo, which sends the inverse captured with that write (`inverseCellWrite`). Cmd-Z does not reach it |
+| Write notice | none: the changed block is in view, and a notice's Undo could only undo the newest history entry | one per write, naming the key, value and page |
+| A cell opens when | the outline is editable | `BlockEditContext` is present and sync is `connected` ([online-only](sync-and-offline.md#online-only-features)) |
+
+A table's root spreads `island` (`tables/island.ts`), which stops clicks and
+unmodified keys there. So a click in a cell does not open the host block's
+text, and a key typed in a cell is not an outline key. Cmd and Ctrl chords
+go on, because the app's shortcuts listen on `window`. A chord typed in a
+cell therefore reaches `EditableBlockTree.onKeyDown`, which ignores any
+editable target (`isEditableTarget`). A click into a cell leaves a block
+selection standing, and Cmd-C or Shift-Cmd-Arrow in the cell would
+otherwise act on the selected blocks.
+
+A plain table's cells are blocks. Each row is a child chain under the table
+block, padded with `null` to the widest row (`roamTableRows`). A write to a
+padding cell creates the chain down to it (`planTableCellWrite`). The
+"+ New row" button makes a chain as wide as the padded table
+(`planNewRow`), not as the header row, which may be one of the short ones.
+
+### The table view
+
+`stepView` (`tables/viewState.ts`) holds two views, each a filter, a sort,
+a view and columns. The saved one is what the macro's
+[options](frontend-rendering.md#macro-options) say, and the live one is what
+the reader sees. Its cases are in the
+[contract](contracts/frontend-editor.md#the-table-view).
+
+The live view belongs to the mounted block, never to a cache. It survives a
+refetch and is lost on unmount. Reset and Save show only while Save would
+write different macro text, so a filter that differs only in padding
+offers no Save. A live view nobody changed follows a new saved one, so a
+Save on another device does not leave this one offering Reset. After a
+cell edit the rows on screen are held (`frozen`) until the reader changes
+the view or resets it, so an edited row neither moves nor vanishes.
+
+Save writes only the fields that differ from the data's defaults
+(`optionsFromView`). A block with no `view:` or `columns:` keeps following
+its data as the default changes; writing them every time would pin it.
+
+### The cell editor
+
+**The open cell is a `<textarea>` (`CellTextarea`), never an `<input>`.**
+iPad Safari with a hardware keyboard keeps Tab inside an `<input>` for its
+own field navigation and never sends the page a keydown, so Tab could not
+move between cells. Neither the iOS Simulator nor Playwright WebKit
+reproduces this, so only a real iPad shows the break.
+
+`stepEditor` (`tables/cellEditor.ts`) is the editor, and its cases are in
+the [contract](contracts/frontend-editor.md#the-cell-editor).
+`decideCellKey` (`cellKeys.ts`) decides its keys, as `decideEditorKey` does
+the outline's. Tab moves between cells even while a suggestion list is
+open, unlike the outline's popup, where Tab picks.
+
+`DataTable` commits an open draft on every way out: Enter, Tab, a mousedown
+outside (in the capture phase, so a surface that stops propagation still
+commits), a keyboard blur, the cell's row or column ceasing to render, and
+its own unmount. The unmount commit runs after the host's effect cleanups,
+in the same commit. So a host's `onWrite` must not depend on anything its
+cleanup tears down; `PlainTable`'s reads only its props.
+
+`canEdit` gates opening a cell, never an open one. Losing it in a
+connection blip must not write a half-typed draft or close the cell. A
+commit the reader then makes still goes to `onWrite`.

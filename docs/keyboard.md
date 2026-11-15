@@ -168,6 +168,23 @@ Enter, Space, Shift+F10 or the context-menu key opens it too.
 | Enter | Pick the highlighted item |
 | Escape or Tab | Close the menu |
 
+## Tables
+
+Click a cell in a table, or in a query's table view, to edit it. Clicking a
+link in a cell follows the link instead.
+
+| Shortcut | Action |
+|---|---|
+| Click a column header | Sort by that column: ascending, then descending, then unsorted |
+| Enter | Save the cell |
+| Escape | Cancel the change; with a page list open (after `[[` or `#`), close the list first |
+| Tab / Shift+Tab | Save and move to the next / previous cell, on to the next / previous row at the end of one |
+| Shift+Enter | New line in the cell |
+| ↑ / ↓, then Enter | Pick a suggested value or page |
+
+Cmd+Z undoes a change to a table on the page. A change made in a query's
+table is undone with Undo in the note that names it.
+
 ## Elsewhere
 
 | Context | Shortcut | Action |

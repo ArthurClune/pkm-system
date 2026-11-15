@@ -358,6 +358,13 @@ These degrade explicitly rather than queueing.
 | `/files`, the assistant | unavailable: no shim for `/api/assets/*` or `/api/assistant/*` |
 | a `Local copy::` PDF | a download link, since `/api/local/*` is never cached |
 | a GoodLinks copy (`/api/goodlinks/*`) | "Needs the server" |
+| a query table's cells and "Save this view" | no cell opens and Save is hidden ([frontend-editor.md § Tables](frontend-editor.md#tables)) |
+
+A query table gates opening a cell, never an open one. A commit from a cell
+opened while connected still enqueues after the connection drops. The queue
+is durable and the write carries `base_text_hash`, so it lands under the
+[conflict rules](write-path.md#conflicts) when it syncs. A plain `{{table}}`
+is not online-only: its writes are outline edits.
 
 ### When views refetch
 

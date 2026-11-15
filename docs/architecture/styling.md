@@ -70,10 +70,11 @@ Buttons and fields are styled by named class, and there is no bare
   focus; call sites add geometry only. `.nav-sidebar-add input` sits on
   `.left-nav`'s own `--color-bg-subtle`, so it takes the surface fill at rest.
 - **Tables.** `DataTable` (`web/src/tables/`) renders `.data-table` inside
-  `.data-table-scroll`, with `.roam-table`'s cell look. Its header is a
+  `.data-table-scroll`, with `.roam-table`'s cell look, so a plain table
+  does not change when its chunk loads. Its header is a
   `.data-table-sort` button filling the `th`. The open cell is
-  `.cell-editor`, a `<textarea>` and never an `<input>`: iPad Safari with a
-  hardware keyboard keeps Tab inside an `<input>`, so the page never sees it.
+  `.cell-editor`, a `<textarea>` and never an `<input>`
+  ([why](frontend-editor.md#the-cell-editor)).
   Its popup, `.cell-editor-popup`, is portalled and `position: fixed`, since
   the scroll box would clip an absolute one. It holds the outline's
   `.ac-popup` with the frame removed. `.table-toolbar` holds the filter, an

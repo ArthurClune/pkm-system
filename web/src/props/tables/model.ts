@@ -1,7 +1,7 @@
 // pattern: Functional Core
-// The table view model, written from the tables-and-queries design's
-// "Unsaved state", "Editing" and "Saved-view syntax" sections and never from
-// viewState.ts:
+// The table view model, written from
+// docs/architecture/contracts/frontend-editor.md § The table view and never
+// from viewState.ts:
 // - the live view starts as the saved one, survives refetches, and is lost
 //   on unmount;
 // - it differs from the saved view when "Save this view" would write

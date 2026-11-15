@@ -44,6 +44,9 @@ web/src/
 ├── help/                     Core   parseHelpMarkdown.ts, the /help renderer
 ├── dnd/                      Shell  Drag context and drop zones; dropGeometry.ts (Core)
 ├── grammar/                  Core   Block grammar (frontend-rendering.md)
+├── tables/                   Shell  The table UI {{table}} blocks and query results
+│                                    share; viewState.ts and cellEditor.ts (Core) are
+│                                    its machines (frontend-editor.md § Tables)
 ├── outline/                  —      The editor engine (frontend-editor.md)
 └── sync/, replica/           —      Delivery and the offline engine
                                      (sync-and-offline.md)
@@ -404,6 +407,10 @@ Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
 - A build over budget throws in `generateBundle`, before the output is written,
   so measure a size with the limits in `budgets.json` raised. Attribute a
   budget delta against the commit just before the merge.
+- A feature only some pages use keeps its weight out of the entry chunk
+  (`initialEntryBytes`) behind an eager shell and a lazy chunk, as query
+  results and plain tables do
+  ([frontend-rendering.md § Lazy renderers](frontend-rendering.md#lazy-renderers-and-their-caches)).
 - `server.fs.allow` lists the repo root so `?raw` can import `docs/keyboard.md`
   from above `web/`; without it vitest fails with "Denied ID".
 - The service worker (`vite-plugin-pwa`) precaches what `globPatterns` lists,
@@ -418,4 +425,4 @@ Versions are in `web/package.json`.
 |---|---|
 | Build | Vite with `vite-plugin-pwa` and pnpm. Overrides go in `pnpm-workspace.yaml`, since pnpm 11 ignores `package.json` overrides |
 | Offline | `@sqlite.org/sqlite-wasm` in a Web Worker on the OPFS SAHPool VFS |
-| Lazy-loaded | KaTeX, beautiful-mermaid with a stock Mermaid fallback, react-pdf/pdf.js, highlight.js, fzf, the query results UI |
+| Lazy-loaded | KaTeX, beautiful-mermaid with a stock Mermaid fallback, react-pdf/pdf.js, highlight.js, fzf, the tables chunk (query results and plain tables) |

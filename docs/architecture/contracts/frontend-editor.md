@@ -1,7 +1,7 @@
 # Contract: the outline editor
 
-Which blocks the editor shows as rows, and what one block's draft does, case
-by case. These models are written from this file and never from the code, so
+Which blocks the editor shows as rows, what one block's draft does, and what
+a table's view and cell editor do, case by case. These models are written from this file and never from the code, so
 a change in behaviour edits the row here and the models together:
 
 - `web/src/props/outline/visibleTree.ts`, the row model that
@@ -10,7 +10,11 @@ a change in behaviour edits the row here and the models together:
 - `web/src/outline/validateOutlineFocus.props.test.ts`, which checks
   `validateOutlineFocus` with that row model;
 - `web/src/props/outline/draftModel.ts`, which the draft property
-  (`draft.prop.ts`) checks the real editor against.
+  (`draft.prop.ts`) checks the real editor against;
+- `web/src/props/tables/model.ts`, which `viewState.prop.ts` checks
+  `stepView` against;
+- `web/src/props/tables/cellModel.ts`, which `cellEditor.prop.ts` checks
+  `stepEditor` and `neighbourCell` against.
 
 Each section's principle, and why it holds, is in
 [frontend-editor.md](../frontend-editor.md) under the same section name; a
@@ -128,3 +132,45 @@ open, is decided by `decideEditorKey` (`outline/keyboardPolicy.ts`):
 |---|---|---|
 | Enter with no modifier, keyCode 229 included, the block editable | `split` at `selStart`: the block becomes two | |
 | Escape, with or without a modifier, read-only included | `blur`: the block leaves edit mode, and the blur flushes its draft ([Drafts and commit points](#drafts-and-commit-points)) | |
+
+## The table view
+
+`stepView` (`tables/viewState.ts`) holds a saved and a live view, each a
+filter, a sort, a view and columns, and the rows held after a cell edit.
+The view is dirty when the macro text Save would write for the live view
+(`formatMacroOptions`) differs from the saved view's. Reset and Save show
+only while it is dirty.
+
+| Event | Saved view | Live view | Held rows | Reason |
+|---|---|---|---|---|
+| a filter typed | unchanged | that filter | released | a view change asks for the rows that view gives |
+| a click on the header of a column the view is not sorted by | unchanged | sorted by it, ascending | released | |
+| a click on the header of the column sorted ascending | unchanged | sorted by it, descending | released | |
+| a click on the header of the column sorted descending | unchanged | unsorted | released | |
+| a view switched, or columns hidden, added or moved | unchanged | that view or those columns | released | |
+| a cell written, no rows held | unchanged | unchanged | the rows on screen, in order | an edited row must neither move nor vanish under the reader |
+| a cell written, rows held | unchanged | unchanged | unchanged | the first edit's rows stay |
+| Reset | unchanged | the saved view | released | |
+| Save, written | the live view | unchanged | unchanged | |
+| a refetch, the view dirty | the macro's options | unchanged | unchanged | a refetch must not lose the reader's changes |
+| a refetch, the view clean | the macro's options | the macro's options | unchanged | a Save on another device must not leave this one offering Reset |
+| the block unmounted and mounted again | the macro's options | the saved view | none | the state belongs to the mounted block |
+
+## The cell editor
+
+`stepEditor` (`tables/cellEditor.ts`) holds at most one open cell, with
+the value it opened with and the reader's draft. Closing a cell writes its
+draft, outer whitespace trimmed, unless that equals the opening value
+trimmed; then it writes nothing. "Writes the draft" below means that rule.
+
+| Event | Open cell after | Writes | Reason |
+|---|---|---|---|
+| a click on a cell, none open | that cell, its draft its stored value | nothing | |
+| a click on the open cell | unchanged | nothing | reopening would drop the draft |
+| a click on another cell | that cell | the draft | |
+| typing | unchanged, with the new draft | nothing | |
+| Enter, or a click outside any cell | none | the draft | |
+| Esc | none | nothing | |
+| Tab | the next editable cell in row-major order, or none past the last | the draft | |
+| Shift-Tab | the previous editable cell, or none before the first | the draft | |
+| anything but a click on a cell, none open | none | nothing | |

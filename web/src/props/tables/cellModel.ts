@@ -1,6 +1,7 @@
 // pattern: Functional Core
-// The cell editor model, written from the tables-and-queries design's
-// "Editing" section and never from cellEditor.ts:
+// The cell editor model, written from
+// docs/architecture/contracts/frontend-editor.md § The cell editor and never
+// from cellEditor.ts:
 // - clicking a cell opens it with its stored value; clicking the open cell
 //   again changes nothing;
 // - Enter, a click elsewhere, Tab and opening another cell close the open

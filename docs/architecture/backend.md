@@ -302,7 +302,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | **Search & queries** | | |
 | GET | `/api/search?q&limit&exact` | FTS5 search over pages and blocks; `exact` drops the prefix match on the last term |
 | GET | `/api/query?expr&expand` | `{{[[query]]}}` evaluation; items carry their parent line (`ancestors`, plus `ancestor_texts` and `ancestor_uids` on the group: the direct parent only, never the whole trail); `expand` adds one hop through pages that reference the operand; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
-| GET | `/api/query/records?expr` | `/api/query`'s results as table records (`query_records.record_key`), each with its `::` cells keyed by attribute page title, and the keys ranked by how many records hold them; `total` counts records. Same plan, source-block exclusion and 400s as `/api/query`, no `expand` |
+| GET | `/api/query/records?expr` | `/api/query`'s results as table records (`query_records.record_key`), each with its `::` cells keyed by attribute page title, and the keys ranked by how many records hold them; `total` counts records. Same plan, source-block exclusion and 400s as `/api/query`, no `expand`. One [`read_txn`](write-path.md#the-write-lock) snapshot, since a delete between its reads would leave a result with no record (a 500 in `build_records`) |
 | GET | `/api/titles?q&limit` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |

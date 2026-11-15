@@ -1,5 +1,5 @@
-import { act, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
 import { READ_INIT, defer, jsonResponse, stubFetch } from "../test-helpers";
 import { tokenizeBlock } from "../grammar/tokenize";
@@ -167,4 +167,29 @@ it("ignores a stale generation's rejection while the current generation is still
   b.resolve(jsonResponse({ groups: [{ page_id: 9, page_title: "Beta page", items: [] }], total: 0 }));
   expect(await screen.findByText("Beta page")).toBeInTheDocument();
   expect(screen.queryByText(/stale network failure/)).toBeNull();
+});
+
+it("a nested result shows its parent line as a link", async () => {
+  stubFetch([
+    [`/api/query?${ENC}`, {
+      groups: [{
+        page_id: 3, page_title: "Papers",
+        ancestor_texts: ["Some Paper"], ancestor_uids: ["abcdef123"],
+        items: [{ uid: "uid_n1", text: "nested result", ancestors: [0] }],
+      }],
+      total: 1,
+    }],
+  ]);
+  function Probe() {
+    const l = useLocation();
+    return <div data-testid="loc">{l.pathname + l.hash}</div>;
+  }
+  render(<MemoryRouter><QueryBlock expr={EXPR} /><Probe /></MemoryRouter>);
+  const crumb = await screen.findByText("Some Paper");
+  expect(crumb).toHaveClass("query-crumb");
+  const item = screen.getByText("nested result");
+  expect(item).toHaveClass("query-item");
+  expect(item.firstElementChild).toContainElement(crumb);
+  fireEvent.click(crumb);
+  expect(screen.getByTestId("loc")).toHaveTextContent("/page/Papers#abcdef123");
 });

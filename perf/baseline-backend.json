@@ -1,5 +1,5 @@
 {
-  "commit": "4db3b6eb+dirty",
+  "commit": "703cbae9+dirty",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
@@ -641,11 +641,11 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 8.95
+        "value": 9.04
       },
       "statements": {
         "class": "exact",
-        "value": 6
+        "value": 8
       },
       "trigger_statements": {
         "class": "exact",

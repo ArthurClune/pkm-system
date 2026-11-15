@@ -167,6 +167,10 @@ function label(reached: Set<string>, step: CellStep, event: EditorEvent, prior: 
   }
   if (step.kind === "cancel" && changed) reached.add("cancel a changed draft");
   if (event.kind === "tab" && event.next === null) reached.add("tab to null");
+  if (event.kind === "tab" && event.dir === 1 && event.next !== null
+      && event.next.cell.row !== open.cell.row) {
+    reached.add("tab to the next row");
+  }
   if (step.kind === "tab" && !order.some((c) => cellKey(c) === cellKey(open.cell))) {
     reached.add("tab from a cell not editable");
   }

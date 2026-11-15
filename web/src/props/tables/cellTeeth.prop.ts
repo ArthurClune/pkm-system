@@ -35,6 +35,7 @@ const MUTANTS: Record<string, Mutant> = {
   "open while editing drops the old draft without a write": {
     catches: ["writes"],
     ...step((s, e) => s.kind === "editing" && e.kind === "open"
+        && (e.cell.row !== s.cell.row || e.cell.col !== s.cell.col)
       ? { state: stepEditor(IDLE, e).state, effects: [] }
       : stepEditor(s, e)),
   },
@@ -58,10 +59,22 @@ const MUTANTS: Record<string, Mutant> = {
     catches: ["idle", "state"],
     ...step((s, e) => e.kind === "cancel" ? { state: s, effects: [] } : stepEditor(s, e)),
   },
-  "Tab past the last cell wraps to the first": {
+  "Tab past either end wraps around": {
     catches: ["neighbour"],
     ...REAL,
-    neighbour: (order, cur, dir) => REAL.neighbour(order, cur, dir) ?? order[0] ?? null,
+    neighbour: (order, cur, dir) => {
+      const inOrder = order.some((c) => c.row === cur.row && c.col === cur.col);
+      const wrapped = dir === 1 ? order[0] : order.at(-1);
+      return REAL.neighbour(order, cur, dir) ?? (inOrder ? wrapped ?? null : null);
+    },
+  },
+  "Tab stops at the row end": {
+    catches: ["neighbour"],
+    ...REAL,
+    neighbour: (order, cur, dir) => {
+      const next = REAL.neighbour(order, cur, dir);
+      return next !== null && next.row !== cur.row ? null : next;
+    },
   },
 };
 

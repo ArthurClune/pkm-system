@@ -18,7 +18,7 @@ import { runCellExample } from "./cellRun";
 
 captureFaultWarnings("table cell editor");
 
-/** Examples per gate run, sized so this file takes about 5 seconds inside
+/** Examples per gate run, sized so this file takes about 4 seconds inside
  * `proptest/check.sh web`, where the property measured about 75,000
  * examples a second. */
 export const NUM_RUNS = 300_000;
@@ -53,6 +53,7 @@ const REACH: Reach = {
     "skip unchanged": 0.352,
     "tab from a cell not editable": 0.136,
     "tab to null": 0.183,
+    "tab to the next row": 0.026,
     "write keeps an inner newline": 0.059,
     "write on commit": 0.036,
     "write on open": 0.057,

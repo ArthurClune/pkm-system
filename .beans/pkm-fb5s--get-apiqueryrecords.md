@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-11-15T16:08:09Z
-updated_at: 2026-11-15T18:05:27Z
+updated_at: 2026-11-15T18:18:35Z
 parent: pkm-l79g
 ---
 
@@ -29,3 +29,6 @@ Task 6 of docs/superpowers/plans/2026-11-15-tables-and-queries.md.
   chunk past CHUNK_SIZE). Perf scenario `query/records` added to the
   backend baseline. backend.md API row added; openapi and columns.gen
   regenerated; the title-input props cover the new route.
+
+
+- Review fix: `fetch_records` reads under one `read_txn` snapshot. Without it, a sync delete of a result or its parent between statements raised `KeyError` (500) in `_result_blocks` or `build_records`. The statement-count test now seeds line records too (10 -> 17 statements at 3 -> 600 of each kind, BEGIN and ROLLBACK included).

@@ -2,8 +2,10 @@
 database in a number of statements that does not grow with the results."""
 from __future__ import annotations
 
+import pytest
 from rawread import trace
 
+from pkm.server import query_records_db
 from pkm.server.db import open_db
 from pkm.server.query_records_db import line_insert_points, page_insert_points
 from pkm.server.routes_search import query_records
@@ -179,6 +181,41 @@ def test_records_key_spelling_follows_page(client, seeded_config):
     assert b["cells"][upper]["key_raw"] == "Reading Status"
 
 
+def _seed_paper(client) -> None:
+    _ops(client,
+         _line("some_paper", "Reading List", "Some Paper", 0),
+         _line("sp_tags", "Reading List", "Tags:: #Preprint", 0,
+               "some_paper"),
+         _line("sp_local", "Reading List", "Local copy:: x", 1,
+               "some_paper"))
+
+
+@pytest.mark.parametrize("fetch,deleted", [
+    ("_result_blocks", "sp_tags"),
+    ("_lines", "some_paper"),
+])
+def test_records_read_one_snapshot(client, seeded_config, monkeypatch,
+                                   fetch, deleted):
+    """A sync write that deletes a result or its record between the
+    route's statements must not reach half the payload: the read sees the
+    graph as it was when the plan ran."""
+    _seed_paper(client)
+    before = _records(client, "{and: [[Preprint]]}")
+    real = getattr(query_records_db, fetch)
+
+    def racing(db, *args):
+        other = open_db(seeded_config.db_path)
+        try:
+            other.execute("DELETE FROM blocks WHERE uid = ?", (deleted,))
+            other.commit()
+        finally:
+            other.close()
+        return real(db, *args)
+
+    monkeypatch.setattr(query_records_db, fetch, racing)
+    assert _records(client, "{and: [[Preprint]]}") == before
+
+
 def test_records_bad_expr_400(client):
     r = client.get("/api/query/records", params={"expr": "{between: [[A]]}"})
     assert r.status_code == 400
@@ -222,16 +259,21 @@ def test_line_insert_points(seeded_config):
 
 def _seed_many(db, start: int, count: int) -> None:
     """`count` Book pages, each with a top-level `Tags:: #Book` and
-    `Author::` line, with the refs ops would derive."""
+    `Author::` line (a page record), and a plain `Notes` line whose child
+    is `Tags:: #Book` (a line record), with the refs ops would derive."""
     pages, blocks, refs = [], [], []
     for i in range(start, start + count):
         pid = 10_000 + i
         pages.append((pid, f"Book/{i:05d}", None, None))
         tags, author = f"many_t{i:05d}", f"many_a{i:05d}"
+        notes, note_tags = f"many_n{i:05d}", f"many_nt{i:05d}"
         blocks += [(tags, pid, None, 0, "Tags:: #Book"),
-                   (author, pid, None, 1, f"Author:: A{i}")]
+                   (author, pid, None, 1, f"Author:: A{i}"),
+                   (notes, pid, None, 2, f"Notes {i}"),
+                   (note_tags, pid, notes, 0, "Tags:: #Book")]
         refs += [(tags, 9_001, "attribute"), (tags, 9_002, "tag"),
-                 (author, 9_003, "attribute")]
+                 (author, 9_003, "attribute"),
+                 (note_tags, 9_001, "attribute"), (note_tags, 9_002, "tag")]
     db.executemany("INSERT INTO pages VALUES (?,?,?,?)", pages)
     db.executemany(
         "INSERT INTO blocks(uid, page_id, parent_uid, order_idx, text,"
@@ -264,13 +306,18 @@ def test_records_many(seeded_config):
     finally:
         db.close()
 
-    assert few.total == 3
-    assert many.total == 600
-    assert len(many.records) == 600
-    assert all(set(r.cells) == {"Tags", "Author"} for r in many.records)
+    assert few.total == 6
+    assert many.total == 1200
+    pages = [r for r in many.records if r.kind == "page"]
+    lines = [r for r in many.records if r.kind == "line"]
+    assert len(pages) == len(lines) == 600
+    assert all(set(r.cells) == {"Tags", "Author"} for r in pages)
+    assert all(set(r.cells) == {"Tags"} for r in lines)
+    assert all(r.insert_before_order_idx == 2 for r in pages)
     assert [(k.key, k.count) for k in many.keys] == \
-        [("Tags", 600), ("Author", 600)]
-    # 600 records pass CHUNK_SIZE (500), so each of the three per-record
-    # fetches (results, page `::` lines, page insert points) runs one more
-    # chunk; nothing else grows.
-    assert many_statements == few_statements + 3
+        [("Tags", 1200), ("Author", 600)]
+    # Past CHUNK_SIZE (500) each chunked fetch runs one more chunk per 500
+    # ids: the 1200 results two more, and the 600 pages and 600 lines one
+    # more each for their `::` lines, insert points and (lines) holders.
+    # Nothing else grows.
+    assert many_statements == few_statements + 2 + 2 + 3

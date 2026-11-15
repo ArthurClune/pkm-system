@@ -7,7 +7,10 @@ chunk count only. A `::` line is a block with an attribute ref, and its key
 is the attribute page's `pages.title`, so two spellings that resolve to one
 page are one column. A page record's lines are its top-level ones and a line
 record's its direct children: `build_records` trusts `AttrBlock.holder`, so
-a deeper `::` line must never be sent under a record."""
+a deeper `::` line must never be sent under a record. The reads share one
+snapshot: `build_records` needs a holder for every result, and a sync write
+deleting a result or its record between two statements would leave one
+without."""
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -16,6 +19,7 @@ from pkm.contracts.ops import BlockUid, OrderIdx, PageId
 from pkm.database import Db
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
+from pkm.server.db import read_txn
 from pkm.server.query_exec import iter_plan_rows
 from pkm.server.query_records import (AttrBlock, HolderInfo, RecordsResult,
                                       ResultBlock, build_records,
@@ -180,6 +184,7 @@ def _holders(db: Db, results: Sequence[ResultBlock]
 def fetch_records(db: Db, sql: str, params: Sequence[str]) -> RecordsResult:
     """The records of a `query.plan_sql` plan, in its result order, with the
     query's own macro blocks left out as `/api/query` leaves them out."""
-    results = _result_blocks(db, list(iter_plan_rows(db, sql, params)))
-    holders, attrs = _holders(db, results)
+    with read_txn(db):
+        results = _result_blocks(db, list(iter_plan_rows(db, sql, params)))
+        holders, attrs = _holders(db, results)
     return build_records(results, holders, attrs)

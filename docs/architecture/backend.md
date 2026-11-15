@@ -301,7 +301,7 @@ cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 | POST | `/api/migrations/title-canonicalization` | Apply the audited digest, returning counts such as `sidebars_retitled` |
 | **Search & queries** | | |
 | GET | `/api/search?q&limit&exact` | FTS5 search over pages and blocks; `exact` drops the prefix match on the last term |
-| GET | `/api/query?expr&expand` | `{{[[query]]}}` evaluation; items carry their ancestors like backlinks (`ancestors`, plus `ancestor_texts` and `ancestor_uids` on the group); `expand` adds one hop through pages that reference the operand; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
+| GET | `/api/query?expr&expand` | `{{[[query]]}}` evaluation; items carry their parent line (`ancestors`, plus `ancestor_texts` and `ancestor_uids` on the group: the direct parent only, never the whole trail); `expand` adds one hop through pages that reference the operand; 400 past `query.MAX_QUERY_DEPTH` nesting or `MAX_QUERY_OPERANDS` page operands |
 | GET | `/api/titles?q&limit` | Title completion for `[[` and `#` |
 | GET | `/api/todos?page` | `{{TODO}}` blocks grouped by page |
 | GET | `/api/changed?since&until&page&limit` | Blocks changed in `[since, until)`, each `new` or `edited`; 400 on an empty window |

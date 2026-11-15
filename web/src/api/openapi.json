@@ -4192,7 +4192,7 @@
           "items"
         ],
         "title": "QueryGroup",
-        "description": "One page's query results. `ancestor_texts` and `ancestor_uids` are\naligned and hold each ancestor its items' trails name, once, in\nfirst-appearance order; both left out when no item has a trail."
+        "description": "One page's query results. `ancestor_texts` and `ancestor_uids` are\naligned and hold each distinct parent its items name, once, in\nfirst-appearance order; both left out when no item is nested."
       },
       "QueryItem": {
         "properties": {
@@ -4219,7 +4219,7 @@
           "text"
         ],
         "title": "QueryItem",
-        "description": "A query result. `ancestors` is its parent line, root first, as\npositions in its group's `ancestor_texts`; left out for a top-level\nblock."
+        "description": "A query result. `ancestors` is its parent line: one position in its\ngroup's `ancestor_texts`, left out for a top-level block. Only the\ndirect parent, not the whole trail."
       },
       "QueryPayload": {
         "properties": {

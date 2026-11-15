@@ -1797,8 +1797,8 @@ export interface components {
         /**
          * QueryGroup
          * @description One page's query results. `ancestor_texts` and `ancestor_uids` are
-         *     aligned and hold each ancestor its items' trails name, once, in
-         *     first-appearance order; both left out when no item has a trail.
+         *     aligned and hold each distinct parent its items name, once, in
+         *     first-appearance order; both left out when no item is nested.
          */
         QueryGroup: {
             /** Page Id */
@@ -1814,9 +1814,9 @@ export interface components {
         };
         /**
          * QueryItem
-         * @description A query result. `ancestors` is its parent line, root first, as
-         *     positions in its group's `ancestor_texts`; left out for a top-level
-         *     block.
+         * @description A query result. `ancestors` is its parent line: one position in its
+         *     group's `ancestor_texts`, left out for a top-level block. Only the
+         *     direct parent, not the whole trail.
          */
         QueryItem: {
             /** Uid */

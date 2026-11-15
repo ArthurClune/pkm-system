@@ -22,13 +22,13 @@ from pkm.database import Db
 from pkm.schema import DDL
 from pkm.server import ancestors_db
 from pkm.server.db import init_db, open_db
-from pkm.server.ancestors_db import fetch_ancestors
+from pkm.server.ancestors_db import fetch_ancestors, fetch_parents
 from pkm.server.sync_core import chunk_ids
 from pkm.server.tree import Ancestors, ancestor_trails, ancestors_of
 from pkm.test_data.ids import uid_of
 
 
-def _referencefetch_ancestors(db: Db, uids: list[BlockUid]
+def _reference_fetch_ancestors(db: Db, uids: list[BlockUid]
                                ) -> dict[BlockUid, list[str]]:
     """`fetch_ancestors` as it was with the per-row path string."""
     out: dict[BlockUid, list[str]] = {}
@@ -179,7 +179,7 @@ def test_fetch_ancestors_matches_the_path_string_walk(db, case):
     with patch.object(ancestors_db, "chunk_ids",
                       lambda ids: chunk_ids(ids, chunk)):
         got = _as_texts(fetch_ancestors(db, starts))
-    assert got == _referencefetch_ancestors(db, starts)
+    assert got == _reference_fetch_ancestors(db, starts)
 
 
 def test_a_chain_at_the_outline_cap_matches(db):
@@ -187,7 +187,7 @@ def test_a_chain_at_the_outline_cap_matches(db):
     _store(db, parents)
     starts = [uid_of(u) for u in parents]
     got = _as_texts(fetch_ancestors(db, starts))
-    assert got == _referencefetch_ancestors(db, starts)
+    assert got == _reference_fetch_ancestors(db, starts)
     assert len(got[starts[-1]]) == MAX_OUTLINE_DEPTH
 
 
@@ -198,7 +198,7 @@ def test_a_cycle_as_long_as_the_outline_cap_matches(db):
     _store(db, parents)
     starts = [uid_of(u) for u in parents]
     got = _as_texts(fetch_ancestors(db, starts))
-    assert got == _referencefetch_ancestors(db, starts)
+    assert got == _reference_fetch_ancestors(db, starts)
     assert all(len(trail) == MAX_OUTLINE_DEPTH for trail in got.values())
 
 
@@ -229,3 +229,19 @@ def test_ancestor_query_work_is_linear_in_depth(db):
     # the path-string walk made, quadruples it.
     shallow, deep = _vm_steps(db, 200), _vm_steps(db, 400)
     assert deep < 3 * shallow, (shallow, deep)
+
+
+def test_fetch_parents_is_one_statement_whatever_the_depth(db):
+    from rawread import trace
+    seen: list[str] = []
+    for depth in (3, 80):
+        parents = _chain(depth)
+        _store(db, parents)
+        seen.clear()
+        trace(db, seen.append)
+        got = fetch_parents(db, [uid_of(u) for u in parents])
+        trace(db, None)
+        assert len(seen) == 1
+        last = f"chain_{depth - 1:05d}"
+        assert got.trails[uid_of(last)] == [uid_of(f"chain_{depth - 2:05d}")]
+        assert uid_of("chain_00000") not in got.trails

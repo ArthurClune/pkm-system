@@ -136,13 +136,15 @@ app is closed on the host.
 **Markdown pipe tables do not render.** `| a | b |` is stored and shown as
 literal text — the block grammar has no pipe-table rule, and the one pipe-table
 parser in the tree (`web/src/help/parseHelpMarkdown.ts`) serves only the static
-`/help` page, never block content. The sole table the renderer draws is the Roam
-macro, and its columns are built out of nesting:
+`/help` page, never block content. The renderer draws two kinds of table: a
+`{{query}}` over `Key::` lines (next section), and the Roam `{{table}}` macro,
+whose columns are built out of nesting:
 
-- The macro block's text is exactly `{{table}}` or `{{[[table]]}}`
-  (case-insensitive, surrounding whitespace ignored — anything else on the line
-  and it is not a table), and it has at least one child. The app's own `/table`
-  slash command inserts this text.
+- The macro block's text is `{{table}}` or `{{[[table]]}}` (case-insensitive,
+  surrounding whitespace ignored), optionally followed by saved-view options
+  (`{{table | sort: Name asc}}`, see below). Anything else on the line and it is
+  not a table. It needs at least one child. The app's own `/table` slash command
+  inserts the bare macro.
 - Each **direct child is a row**; the first row is the header.
 - A row's **cells are the chain of single children** beneath it, so an
   N-column table nests N levels deep.
@@ -178,6 +180,32 @@ miserable to reorder or re-sort by hand. When the content is wide, or your
 partner has said they intend to sort it themselves, offer the outliner-native
 shape too — one bullet per row with `Attribute:: value` children — and let them
 pick.
+
+## Query tables
+
+A `{{query: {and: [[A]] [[B]]}}}` block shows its results as a table (or cards,
+or blocks) whose columns are `Key:: value` lines. Each result becomes a row:
+
+| Result block | Row | Columns |
+|---|---|---|
+| top-level `Key::` line on a page (`Tags:: #Paper #LLM`) | the page | the page's top-level `Key::` lines |
+| `Key::` line nested under a line | that parent line | the parent's `Key::` children |
+| any other block (`[Title](url) #Paper`) | the block | its `Key::` children — none if it has none |
+
+So when your partner wants records to show up with columns, write their details
+as `Key::` lines and put the matched tags in one too (`Tags:: #Paper #LLM`),
+not loose in the text. By default the table shows the keys at least half the
+rows hold; options after the expression, each ` | name: value`, fix the view:
+
+    {{query: {and: [[Paper]] [[LLM]]} | view: table | sort: Date desc | columns: Author, Date, URL | filter: -status:read}}
+
+`view` is `table`, `cards` or `blocks` (query only); `sort` is a column then
+`asc` or `desc`; `columns` is names in order (query only); `filter` is the
+filter box's text (word prefixes, `col:value`, `-` to exclude, `"a phrase"`,
+`col:` for empty); `col` is the start of any word of a column's name, so
+`status:read` searches Reading Status. No option value may hold `|`, braces, `[[`, `]]`, `((`, `))`
+or `#`, and no column name a comma. `pkm query` returns the matching blocks, not
+the table: it does not apply options.
 
 ## Title syntax
 

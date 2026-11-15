@@ -445,6 +445,29 @@ describe("query views", () => {
     expect(screen.getByTestId("loc")).toHaveTextContent(/^\/page\/Reading%20List$/);
   });
 
+  it("renders a line record's markup in the table and on cards", async () => {
+    const MARKED = "[Using LLMs](https://example.org/x) for #LLM";
+    stubBooks({ records: [bookRecord("l:xline", "AI in Research", {
+      Status: bookCell("lstatus", "Status:: Read"),
+    }, { kind: "line", uid: uidOf("linex1234"), row_title: MARKED,
+         insert_parent_uid: uidOf("linex1234") })],
+                keys: [stat("Status", 1)], total: 1 });
+    renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    const check = () => {
+      expect(screen.queryByText(/\]\(https/)).toBeNull();
+      expect(screen.getByRole("link", { name: "Using LLMs" }))
+        .toHaveAttribute("href", "https://example.org/x");
+      expect(screen.getByRole("link", { name: "#LLM" })).toBeInTheDocument();
+    };
+    check();
+    fireEvent.click(screen.getByText(/for/));
+    expect(screen.getByTestId("loc"))
+      .toHaveTextContent("/page/AI%20in%20Research#linex1234");
+    fireEvent.click(screen.getByRole("button", { name: "Cards" }));
+    check();
+  });
+
   it("badges a key held twice and a value with children", async () => {
     stubBooks();
     renderBlock(`{{query: ${BOOK}}}`);

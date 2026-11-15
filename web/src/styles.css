@@ -640,6 +640,12 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .roam-table th, .roam-table td { border: 1px solid var(--color-border);
   padding: 6px 8px; vertical-align: top; }
 .roam-table th { background: var(--color-bg-subtle); text-align: left; font-weight: 600; }
+/* Both tables are at least max-content wide, so a narrow screen scrolls
+ * them rather than squeezing them. A body cell caps its content, or one long
+ * line (a markdown link's URL) sets its column's width and pushes the other
+ * columns out of view. The cap is on a div, not the td: what a td's
+ * max-width does in an auto-layout table is left to the engine. */
+.table-cell { max-width: 22rem; overflow-wrap: anywhere; }
 /* {{toc}}: an embedded card in the .code-block idiom that hugs its list
  * instead of spanning the row, titled like a .section-header scaled to fit.
  * Nesting comes from the nested <ol>s, so one indent rule covers every
@@ -935,6 +941,8 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .query-views [aria-pressed="true"] { background: var(--color-selected-bg);
   border-color: var(--color-border-strong); color: var(--color-text); }
 /* a record's page under a line record's text */
+/* a line record's text: a click outside its own links opens the line */
+.query-line { cursor: pointer; }
 .query-source { font-size: 12px; color: var(--color-text-muted); }
 /* what a cell leaves out: a key's later lines, a value's children */
 .query-cell-badge { margin-left: 6px; padding: 0 6px; font-size: 11px;

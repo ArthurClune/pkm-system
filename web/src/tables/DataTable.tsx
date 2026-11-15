@@ -212,19 +212,21 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                     <td key={c.key} className={classes || undefined}
                         onClick={editable(c) ? (e) => onCellClick(e, r, c)
                           : undefined}>
-                      {c.editable && isOpen(id, c) && editor.kind === "editing"
-                        ? <CellTextarea
-                            key={`${id}\u0000${c.key}`}
-                            label={c.label} draft={editor.draft}
-                            onDraft={(draft) => dispatch({ kind: "input", draft })}
-                            onCommit={() => dispatch({ kind: "commit" })}
-                            onCancel={() => dispatch({ kind: "cancel" })}
-                            onOutside={leave(id, c.key)}
-                            onTab={tab}
-                            hint={cellHint?.(r, c)}
-                            suggest={suggest
-                              ? (typed) => suggest(r, c, typed) : undefined} />
-                        : renderCell(r, c)}
+                      <div className="table-cell">
+                        {c.editable && isOpen(id, c) && editor.kind === "editing"
+                          ? <CellTextarea
+                              key={`${id}\u0000${c.key}`}
+                              label={c.label} draft={editor.draft}
+                              onDraft={(draft) => dispatch({ kind: "input", draft })}
+                              onCommit={() => dispatch({ kind: "commit" })}
+                              onCancel={() => dispatch({ kind: "cancel" })}
+                              onOutside={leave(id, c.key)}
+                              onTab={tab}
+                              hint={cellHint?.(r, c)}
+                              suggest={suggest
+                                ? (typed) => suggest(r, c, typed) : undefined} />
+                          : renderCell(r, c)}
+                      </div>
                       {stale && i === 0 && (
                         <span className="data-table-stale-label">
                           no longer matches

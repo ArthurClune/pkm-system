@@ -71,7 +71,11 @@ Buttons and fields are styled by named class, and there is no bare
   `.left-nav`'s own `--color-bg-subtle`, so it takes the surface fill at rest.
 - **Tables.** `DataTable` (`web/src/tables/`) renders `.data-table` inside
   `.data-table-scroll`, with `.roam-table`'s cell look, so a plain table
-  does not change when its chunk loads. Its header is a
+  does not change when its chunk loads. Both tables are at least
+  `max-content` wide so a narrow screen scrolls them, so each body cell's
+  content sits in a `.table-cell` that caps its width. Without the cap, one
+  long line (a markdown link's URL) widens its column until the rest scroll
+  out of view. Its header is a
   `.data-table-sort` button filling the `th`. The open cell is
   `.cell-editor`, a `<textarea>` and never an `<input>`
   ([why](frontend-editor.md#the-cell-editor)).

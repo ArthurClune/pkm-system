@@ -22,8 +22,9 @@ reason that belongs to one row sits in that row.
 `EditableBlockTree`, `visibleUids`, `selectableUids` and
 `validateOutlineFocus` alike.
 
-A block's text is a table macro (`TABLE_MACRO` in `outline/roamTableRows.ts`)
-when, trimmed, it is the whole of one of two spellings:
+A block's text is a table macro (`tableMacroOptions` in
+`grammar/macroOptions.ts`) when, trimmed, it is the whole of one of two
+spellings, optionally carrying a saved view's options:
 
 | Text | A table macro? | Reason |
 |---|---|---|
@@ -31,7 +32,11 @@ when, trimmed, it is the whole of one of two spellings:
 | `{{[[table]]}}` | yes | the spelling Roam imports hold |
 | either, in another letter case (`{{TABLE}}`, `{{[[Table]]}}`) | yes | |
 | either, with spaces or a newline around it | yes | |
+| either, followed by options before its `}}` (`{{table \| sort: Lab desc}}`, `{{[[table]] \| filter: x \| view: cards}}`) | yes | a saved view; the options never change which children are rows |
+| either, followed by spaces and then options (`{{table  \| sort: A asc}}`) | yes | the options start at the first ` \| ` |
 | either, with other text beside it (`{{table}} x`) | no | |
+| either, with a `\|` not spaced as ` \| ` (`{{table\|sort: A asc}}`) | no | only ` \| ` starts an option |
+| either, with other text before the first ` \| ` (`{{table [[a \| b]]}}`) | no | the head must be the bare name |
 | a near spelling: `{{tables}}`, an unclosed `{{[[table]]`, a bare `table` | no | |
 
 | A block whose text is a table macro | A valid Roam table (`roamTableRows` returns rows)? | Reason |

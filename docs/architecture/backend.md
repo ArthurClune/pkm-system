@@ -371,7 +371,7 @@ failing step. Add a new dump to that table; `test_regen.py` enforces it.
 | `shared/fixtures/title_parity.json` | `test_title_parity_fixture.py` | `normalize_title`, `target_canonical_title`, `title_syntax_reason`, `is_blank_title`, `extract` |
 | `shared/fixtures/text_limits_parity.json` | `test_text_limits_parity_fixture.py` | `text_limit_violation`, `link_nesting_depth`, `describe_text_limit`, `MAX_BLOCK_TEXT_CHARS`, `MAX_LINK_NESTING` |
 | `shared/fixtures/mime_parity.json` | `test_mime_parity_fixture.py`; `filesCore.test.ts` replays it | `assets_core.mime_category` over every `MIME_POLICY` type, to the web Files view's `mimeCategory` and its own `DOCUMENT_MIME` list |
-| `shared/fixtures/macro_options_parity.json` | `test_macro_options_parity_fixture.py` | `macro_options.split_macro_options`, `format_macro_options` |
+| `shared/fixtures/macro_options_parity.json` | `test_macro_options_parity_fixture.py`; `macroOptions.test.ts` replays it | `macro_options.split_macro_options`, `format_macro_options`, to the web's `splitMacroOptions`, `formatMacroOptions` |
 | `shared/fixtures/shim_parity.json` | `test_shim_parity_fixture.py` | the offline shim (`replica/localApi/`) to the read routes' JSON |
 | `shared/fixtures/text_hash_parity.json` | `textHashParity.test.ts` | `text_hash`, `subtree_hash`, `well_formed` |
 | `shared/fixtures/local_links_parity.json` | `localLinksParity.test.ts` | `local_docs.extract_local_hrefs` |

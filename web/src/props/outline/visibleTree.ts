@@ -20,10 +20,12 @@ interface Shape {
 
 const PLAIN = fc.constantFrom(
   "a", "text", "x y", "", "\u{1F600} hi", "é\u{1D11E}", "{{table}} x",
-  "{{tables}}", "{{[[table]]", "table",
+  "{{tables}}", "{{[[table]]", "table", "{{table|sort: A asc}}",
+  "{{table [[a | b]]}}",
 );
 const MACRO = fc.constantFrom(
   "{{table}}", "{{[[table]]}}", " {{TABLE}} ", "{{[[Table]]}}\n",
+  "{{table | sort: Lab desc}}", "{{[[table]] | filter: x | view: cards}}",
 );
 const HEADING = fc.constantFrom(null, null, null, 1, 2, 3) as
   fc.Arbitrary<BlockNode["heading"]>;
@@ -106,8 +108,10 @@ export function pathTo(blocks: readonly BlockNode[], uid: BlockUid): BlockUid[] 
   return [];
 }
 
+/** Either spelling, any case, optionally followed by ` | name: value`
+ * options, which start at the first ` | ` after the name. */
 export const isMacro = (text: string): boolean =>
-  ["{{table}}", "{{[[table]]}}"].includes(text.trim().toLowerCase());
+  /^\{\{(?:table|\[\[table\]\])\s*(?: \| [\s\S]*)?\}\}$/i.test(text.trim());
 
 const chainOk = (cell: BlockNode): boolean =>
   cell.children.length <= 1

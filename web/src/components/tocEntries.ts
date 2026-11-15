@@ -16,7 +16,7 @@ export interface TocEntry {
   children: TocEntry[];
 }
 
-/** The two spellings of the macro, matching roamTableRows' TABLE_MACRO. */
+/** The two spellings of the macro, as {{table}} has (tableMacroOptions). */
 const TOC_MACRO = /^(?:\{\{toc\}\}|\{\{\[\[toc\]\]\}\})$/i;
 
 export function isTocMacro(text: string): boolean {

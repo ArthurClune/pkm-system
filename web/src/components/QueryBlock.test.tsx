@@ -52,6 +52,19 @@ it("InlineSegments renders query segments as live QueryBlocks", async () => {
   expect(screen.getByText(`query: ${EXPR}`)).toBeInTheDocument();
 });
 
+it("asks the server for the expression without the macro's options", async () => {
+  const fetchMock = stubFetch([
+    [`/api/query?${ENC}`, { groups: [], total: 0 }]]);
+  const text = `{{query: ${EXPR} | view: table | sort: Title asc}}`;
+  render(
+    <MemoryRouter>
+      <InlineSegments segments={tokenizeBlock(text)} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText("0 results")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith(`/api/query?${ENC}`, READ_INIT);
+});
+
 it("caps nested query recursion with an inert placeholder and no extra fetch", async () => {
   const fetchMock = stubFetch([
     [`/api/query?${ENC}`, {

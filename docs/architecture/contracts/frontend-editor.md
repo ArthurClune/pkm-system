@@ -137,9 +137,10 @@ open, is decided by `decideEditorKey` (`outline/keyboardPolicy.ts`):
 
 `stepView` (`tables/viewState.ts`) holds a saved and a live view, each a
 filter, a sort, a view and columns, and the rows held after a cell edit.
-The view is dirty when the macro text Save would write for the live view
-(`formatMacroOptions`) differs from the saved view's. Reset and Save show
-only while it is dirty.
+The view is dirty when `isDirty` finds a field of the live view that
+differs from the saved view's (`sameView`). It compares the fields, not the
+macro text; a filter is compared as the macro stores it, so padding alone
+is not a change. Reset and Save show only while it is dirty.
 
 | Event | Saved view | Live view | Held rows | Reason |
 |---|---|---|---|---|

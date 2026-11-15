@@ -16,7 +16,7 @@ View = Literal["table", "cards", "blocks"]
 SortDir = Literal["asc", "desc"]
 
 _SEPARATOR = " | "
-_REFUSED = ("[[", "]]", "#", "|", "{", "}")
+_REFUSED = ("[[", "]]", "((", "))", "#", "|", "{", "}")
 
 
 @dataclass(frozen=True)

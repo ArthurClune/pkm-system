@@ -280,6 +280,21 @@ describe("RoamTable", () => {
     expect(called()).toEqual([]);
   });
 
+  it("Save refuses a sort on a header that is a block ref", async () => {
+    const { handlers, called } = spyHandlers();
+    mount(table("{{table}}", [
+      chain("tuid-h", ["Lab", "((abcDEF123))"]),
+      chain("tuid-a", ["apache", "40"]),
+    ]), handlers);
+    await loaded();
+    const header = within(screen.getAllByRole("rowgroup")[0]!)
+      .getAllByRole("columnheader")[1]!;
+    fireEvent.click(within(header).getAllByRole("button")[0]!);
+    expect(screen.queryByRole("button", { name: "Save this view" })).toBeNull();
+    expect(screen.getByText(/cannot contain '\(\('/)).toBeInTheDocument();
+    expect(called()).toEqual([]);
+  });
+
   it("a read-only table sorts and filters but opens no cell and offers no writes", async () => {
     const { handlers, called } = spyHandlers();
     mount(table(), handlers, false);

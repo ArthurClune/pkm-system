@@ -155,7 +155,7 @@ Everything the UI can ask the editor to do is the `OutlineHandlers` port in
 UI code. An eslint ban on `src/outline/**` keeps that true, so a type the
 engine needs from a component moves into `outline/`.
 
-A surface rendered inside a block writes to it through two handlers:
+A surface rendered inside a block writes to it through these handlers:
 
 | Handler | Writes | Used by |
 |---|---|---|

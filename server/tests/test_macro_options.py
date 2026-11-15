@@ -1,5 +1,6 @@
 import pytest
 from hypothesis import assume, given, strategies as st
+from pkm import refs
 from pkm.macro_options import (
     MacroOptions, format_macro_options, normalise_macro_options,
     options_refusal, split_macro_options)
@@ -82,7 +83,8 @@ def test_format_order_is_fixed_and_skips_none():
 
 
 @pytest.mark.parametrize("bad,char", [
-    ("[[x]]", "[["), ("#x", "#"), ("a|b", "|"), ("a}", "}"), ("a{", "{")])
+    ("[[x]]", "[["), ("#x", "#"), ("a|b", "|"), ("a}", "}"), ("a{", "{"),
+    ("((abcDEF123))", "(("), ("a))", "))")])
 def test_refusal_names_the_character(bad, char):
     msg = options_refusal(MacroOptions(filter=bad))
     assert msg is not None and repr(char) in msg
@@ -127,7 +129,7 @@ def test_normalise_trims_and_drops_empties():
     )) == MacroOptions(filter="f", sort=("S", "desc"), columns=("a", "b"))
 
 
-_TEXT = st.text(alphabet=st.sampled_from(list("ab -:,\t#{}|[]")),
+_TEXT = st.text(alphabet=st.sampled_from(list("ab -:,\t#{}|[]()")),
                 max_size=8)
 _OPTIONS = st.builds(
     MacroOptions,
@@ -143,3 +145,18 @@ def test_accepted_options_round_trip_to_their_normal_form(opts):
     head = "{and: [[A]]}"
     assert split_macro_options(head + format_macro_options(opts)) == (
         head, normalise_macro_options(opts))
+
+
+_REF_PARTS = st.lists(st.sampled_from(
+    ["((abcDEF))", "[[A]]", "#A", "((", "))", "x", " "]), max_size=4).map("".join)
+
+
+@given(st.builds(
+    MacroOptions, filter=st.none() | _REF_PARTS,
+    sort=st.none() | st.tuples(_REF_PARTS, st.just("asc")),
+    columns=st.none() | st.lists(_REF_PARTS, max_size=3).map(tuple)))
+def test_accepted_options_add_no_refs(opts):
+    assume(options_refusal(opts) is None)
+    head = "{{query: {and: [[A]]}"
+    assert refs.extract(head + format_macro_options(opts) + "}}") == (
+        refs.extract(head + "}}"))

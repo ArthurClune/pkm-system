@@ -11,7 +11,7 @@ import {
   type MacroOptions,
 } from "./macroOptions";
 
-const REFUSED = ["[[", "]]", "#", "|", "{", "}"] as const;
+const REFUSED = ["[[", "]]", "((", "))", "#", "|", "{", "}"] as const;
 
 /** What `o` reads back as after a save: every value trimmed, empty column
  * names dropped, and a filter, sort or column list left with nothing

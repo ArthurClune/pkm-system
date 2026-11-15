@@ -69,6 +69,7 @@ describe("normaliseMacroOptions", () => {
 describe("optionsRefusal", () => {
   it.each([
     ["[[x]]", "[["], ["#x", "#"], ["a|b", "|"], ["a}", "}"], ["a{", "{"],
+    ["((abcDEF123))", "(("], ["a))", "))"],
   ])("refuses %j in a filter, naming %j", (bad, char) => {
     const msg = optionsRefusal({ filter: bad });
     expect(msg).toBe(`A saved view cannot contain '${char}': '${bad}'`);

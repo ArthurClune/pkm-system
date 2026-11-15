@@ -258,6 +258,64 @@ class QueryPayload(StrictModel):
     ref_counts: dict[CanonicalTitle, int]
 
 
+class RecordCell(StrictModel):
+    """One record's `::` line for one column. `text` is the block as
+    written, `key_raw` its key as spelled there, and `value` the text after
+    `::`, leading whitespace trimmed and line breaks kept. `value_start`
+    is where the value would begin in `text`, just past the `::`, so
+    `text[:value_start]` is the key part a commit rewrites the value after.
+    `extra_uids` are the record's later lines for the same key, and
+    `child_count` the first line's children; neither is shown in the cell,
+    and both are left out when empty."""
+    uid: BlockUid
+    key_raw: str
+    text: str
+    value: str
+    value_start: int
+    extra_uids: list[BlockUid] = Field(default_factory=list)
+    child_count: int = 0
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
+        data = handler(self)
+        if isinstance(data, dict):
+            for field in ("extra_uids", "child_count"):
+                if not data.get(field):
+                    data.pop(field, None)
+        return data
+
+
+class QueryRecordModel(StrictModel):
+    """A query table row: a page (`kind` "page", `uid` None) or a line,
+    with the uids of the query results that map to it. `row_title` is the
+    page title or the line's text as written; it is not named `title`, a
+    name that must carry a title brand. `cells` are keyed by
+    attribute page title. A new `::` line goes under `insert_parent_uid`
+    (None: top level of the page), before the sibling at
+    `insert_before_order_idx`; with no such sibling, after the record's
+    last `::` line at `last_attr_order_idx`, or first when it has none."""
+    key: str
+    kind: Literal["page", "line"]
+    page_id: PageId
+    page_title: CanonicalTitle
+    uid: BlockUid | None
+    row_title: str
+    result_uids: list[BlockUid]
+    cells: dict[CanonicalTitle, RecordCell]
+    insert_parent_uid: BlockUid | None
+    insert_before_order_idx: OrderIdx | None
+    last_attr_order_idx: OrderIdx | None
+
+
+class KeyStat(StrictModel):
+    """A column candidate: an attribute page, how many records hold it, and
+    `label`, its first spelling in record order."""
+    key: CanonicalTitle
+    label: str
+    count: int
+
+
 class ChangedItem(StrictModel):
     uid: BlockUid
     text: str

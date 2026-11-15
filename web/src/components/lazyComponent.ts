@@ -3,17 +3,21 @@
 // pays for it in the entry chunk.
 import { useEffect, useState } from "react";
 
+export interface Loader<T> {
+  (): Promise<T>;
+  /** The loaded value once the load has resolved. */
+  peek(): T | undefined;
+}
+
 /** One load shared by every caller; a failed one is forgotten, so the next
  * mount retries instead of replaying the rejection. */
-export function lazyLoader<T>(load: () => Promise<T>): () => Promise<T> {
+export function lazyLoader<T>(load: () => Promise<T>): Loader<T> {
   let promise: Promise<T> | null = null;
-  return () => {
-    if (!promise) {
-      promise = load();
-      promise.catch(() => { promise = null; });
-    }
-    return promise;
-  };
+  let loaded: T | undefined;
+  const get = () => promise ??= load().then(
+    (value) => (loaded = value),
+    (e: unknown) => { promise = null; throw e; });
+  return Object.assign(get, { peek: () => loaded });
 }
 
 export type Lazy<T> =
@@ -21,9 +25,14 @@ export type Lazy<T> =
   | { status: "ok"; value: T }
   | { status: "error"; message: string };
 
-/** What `load` gave; nothing loads while `skip`. */
-export function useLazy<T>(load: () => Promise<T>, skip = false): Lazy<T> {
-  const [state, setState] = useState<Lazy<T>>({ status: "loading" });
+/** What `load` gave; nothing loads while `skip`. A mount after the load
+ * has resolved starts with the value, so it renders the loaded component on
+ * its first render instead of a placeholder for a frame. */
+export function useLazy<T>(load: Loader<T>, skip = false): Lazy<T> {
+  const [state, setState] = useState<Lazy<T>>(() => {
+    const value = load.peek();
+    return value === undefined ? { status: "loading" } : { status: "ok", value };
+  });
   useEffect(() => {
     if (skip) return;
     let live = true;

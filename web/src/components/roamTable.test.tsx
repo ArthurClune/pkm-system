@@ -214,17 +214,51 @@ describe("RoamTable", () => {
     expect(fns.get("onFocusBlock")).toHaveBeenCalledWith("tuid-table", "{{table}}".length);
   });
 
-  it("Save writes the view into the macro through onSetText", async () => {
-    const { handlers, fns } = spyHandlers();
-    const { rerenderNode } = mount(table(), handlers);
+  it("Save writes the view into the macro, planned against the live text", async () => {
+    const node = table();
+    const edits = planned(node);
+    const { handlers } = spyHandlers({ onEditInBlock: edits.fn });
+    const { rerenderNode } = mount(node, handlers);
     await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Cache hit" }));
     fireEvent.click(screen.getByRole("button", { name: "Save this view" }));
-    expect(fns.get("onSetText"))
-      .toHaveBeenCalledWith("tuid-table", "{{table | sort: Cache hit asc}}");
+    expect(edits.ops).toEqual([[{ op: "update_text", uid: uidOf("tuid-table"),
+                                  text: "{{table | sort: Cache hit asc}}" }]]);
+    expect(screen.queryByRole("button", { name: "Save this view" })).toBeNull();
     rerenderNode(table("{{table | sort: Cache hit asc}}"));
     expect(screen.getByText("✓ saved view")).toBeInTheDocument();
     expect(bodyTexts()).toEqual(["nginx", "apache", "zeta"]);
+  });
+
+  it("a Save the outline refuses leaves the view unsaved", async () => {
+    const node = table();
+    const edits = planned(node);
+    const refuse = vi.fn((uid: BlockUid,
+                          plan: (n: BlockNode, t: CanonicalTitle) => BlockOp[]) => {
+      edits.fn(uid, plan);
+      return false;
+    });
+    const { handlers } = spyHandlers({ onEditInBlock: refuse });
+    mount(node, handlers);
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Cache hit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this view" }));
+    expect(refuse).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("✓ saved view")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save this view" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
+  });
+
+  it("Save refuses when the block's live text is no longer a table macro", async () => {
+    const edits = planned(table("{{table}} and more"));
+    const { handlers } = spyHandlers({ onEditInBlock: edits.fn });
+    mount(table(), handlers);
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "Cache hit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save this view" }));
+    expect(edits.ops).toEqual([[]]);
+    expect(screen.getByText(/no longer a table macro/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
   });
 
   it("a saved view starts sorted and filtered", async () => {

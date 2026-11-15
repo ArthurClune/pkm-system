@@ -10,7 +10,7 @@
 // individually-typed operation, and the union would add a second name and a
 // switch for each one without removing a single case.
 import type { BlockUid, CanonicalTitle } from "../api/brands";
-import type { BlockOp, HeadingLevel } from "../api/ops";
+import type { CreateOp, HeadingLevel, UpdateTextOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import type { LocalFile } from "./localFiles";
 
@@ -66,16 +66,21 @@ export interface OutlineHandlers {
   onSetViewType(uid: BlockUid, viewType: "numbered" | "document"): void;
   onToggleTodo(uid: BlockUid): void;
   /** Replace the block's whole text, as one undo step: what a surface
-   * rendered inside the block (a query's Save, a table cell) writes. */
-  onSetText(uid: BlockUid, text: string): void;
+   * rendered inside the block (a query's Save) writes. False when nothing
+   * was written: the block is gone, already holds `text`, or the write was
+   * refused (an unsaved draft, a text limit). */
+  onSetText(uid: BlockUid, text: string): boolean;
   /** Apply the ops `plan` makes from `uid`'s block as the tree holds it
    * now, as one undo step, leaving focus alone. False when nothing was
    * applied: the block is gone, the plan made no ops, or a limit refused
    * them. A surface inside a block that writes more than its text (a
    * table's new row, a padding cell's chain) passes its own planner, so the
-   * planner stays in that surface's lazy chunk. */
+   * planner stays in that surface's lazy chunk. The plan only creates and
+   * rewrites blocks in `uid`'s subtree: a move or a delete belongs to a
+   * handler that confirms and guards it. */
   onEditInBlock(uid: BlockUid,
-                plan: (node: BlockNode, pageTitle: CanonicalTitle) => BlockOp[],
+                plan: (node: BlockNode, pageTitle: CanonicalTitle)
+                  => (CreateOp | UpdateTextOp)[],
   ): boolean;
   /** Resolves once the uploads have finished: true when something landed
    * (each upload as its own block after `uid`, or in `uid` when it was

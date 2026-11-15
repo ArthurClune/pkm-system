@@ -47,7 +47,8 @@ export interface BlockEditApi {
   toggleTodo: () => void;
   /** The host block's text as stored, quote prefix included. */
   text: string;
-  setText: (next: string) => void;
+  /** False when nothing was written (see OutlineHandlers.onSetText). */
+  setText: (next: string) => boolean;
   /** Open the host block's own text editor. */
   editAsText: () => void;
 }

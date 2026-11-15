@@ -7,7 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef,
 import { ApiError } from "../api/client";
 import type { BlockUid, CanonicalTitle, Sha256Hex } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
-import type { BlockOp } from "../api/ops";
+import type { BlockOp, CreateOp, UpdateTextOp } from "../api/ops";
 import { apiPost } from "../api/typedClient";
 import { toggleTodo } from "../grammar/todo";
 import { findOpTitleViolation, linkedTitleRefusal,
@@ -302,7 +302,8 @@ export function useOutline(
       markRefusedPending, pageTitle, sync, setNotice]);
 
   const edit = useCallback((uid: BlockUid, plan: (node: BlockNode,
-                            title: CanonicalTitle) => BlockOp[]): boolean =>
+                            title: CanonicalTitle) => (CreateOp | UpdateTextOp)[],
+  ): boolean =>
     run((b) => {
       const node = findNode(b, uid);
       const ops = node ? plan(node, pageTitle) : [];

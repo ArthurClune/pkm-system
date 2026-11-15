@@ -167,8 +167,9 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
       setSaveRefusal({ live, text: plan.refusal });
       return;
     }
-    edit.setText(plan.text);
-    step({ kind: "saved" });
+    // A refused write (an unsaved draft, a text limit) leaves the view
+    // unsaved, so Reset and Save stay.
+    if (plan.text === edit.text || edit.setText(plan.text)) step({ kind: "saved" });
   };
 
   const onWrite = (r: QueryRecordModel, c: QueryColumn, value: string) => {

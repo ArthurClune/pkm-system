@@ -13,7 +13,7 @@
 // DataTable may commit an open cell after this component has unmounted, so
 // onWrite reads only its props.
 import { useState } from "react";
-import type { BlockOp } from "../api/ops";
+import type { CreateOp, UpdateTextOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import type { MacroOptions } from "../grammar/macroOptions";
 import { formatMacroOptions, optionsRefusal } from "../grammar/macroOptionsWrite";
@@ -83,20 +83,31 @@ export function PlainTable({ node, rows, options, handlers,
   const refusal = optionsRefusal(next)
     ?? (saveRefusal?.live === live ? saveRefusal.text : null);
 
+  // Planned against the block's text as the tree holds it now, and the view
+  // counts as saved only once the write went through: a refused write (an
+  // unsaved draft, a text limit) leaves Reset and Save showing.
   const save = () => {
-    const plan = planTableSave(node.text, next);
-    if ("refusal" in plan) {
-      setSaveRefusal({ live, text: plan.refusal });
-      return;
-    }
-    handlers.onSetText(node.uid, plan.text);
-    step({ kind: "saved" });
+    const seen: { refusal: string | null; unchanged: boolean } =
+      { refusal: null, unchanged: false };
+    const written = handlers.onEditInBlock(node.uid, (table) => {
+      const plan = planTableSave(table.text, next);
+      if ("refusal" in plan) {
+        seen.refusal = plan.refusal;
+        return [];
+      }
+      seen.unchanged = plan.text === table.text;
+      return seen.unchanged ? []
+        : [{ op: "update_text", uid: table.uid, text: plan.text }];
+    });
+    if (seen.refusal !== null) setSaveRefusal({ live, text: seen.refusal });
+    else if (written || seen.unchanged) step({ kind: "saved" });
   };
 
   const onWrite = (r: Shown<TableRow>, c: Column, value: string) => {
     const col = at.get(c.key);
     if (col === undefined) return;
-    const written = handlers.onEditInBlock(node.uid, (table, title): BlockOp[] => {
+    const written = handlers.onEditInBlock(node.uid,
+                                           (table, title): (CreateOp | UpdateTextOp)[] => {
       const t = roamTable(table);
       const index = t ? t.rows.findIndex((row) => row[0]?.uid === r.item.id) : -1;
       const write = t && index > 0

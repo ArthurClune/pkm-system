@@ -290,7 +290,7 @@ function stubBooks(records: object = BOOKS) {
 }
 
 function editApi(text: string): BlockEditApi {
-  return { toggleTodo: vi.fn(), text, setText: vi.fn(), editAsText: vi.fn() };
+  return { toggleTodo: vi.fn(), text, setText: vi.fn(() => true), editAsText: vi.fn() };
 }
 
 /** The query as a block's text renders it, inside an editable block unless
@@ -517,6 +517,19 @@ describe("saving the view", () => {
     expect(edit!.setText).toHaveBeenCalledWith(rewriteMacroOptions(text,
       [6, text.length], { filter: "author:x" }));
     expect(screen.getByText("✓ saved view")).toBeInTheDocument();
+  });
+
+  it("a Save the outline refuses leaves the view unsaved", async () => {
+    stubBooks();
+    const text = `{{query: ${BOOK}}}`;
+    const edit = { ...editApi(text), setText: vi.fn(() => false) };
+    renderBlock(text, { edit });
+    await screen.findByRole("table");
+    fireEvent.change(filterBox(), { target: { value: "kind" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save this view" }));
+    expect(edit.setText).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("✓ saved view")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save this view" })).toBeInTheDocument();
   });
 
   it("refuses a filter holding [[ and writes nothing", async () => {

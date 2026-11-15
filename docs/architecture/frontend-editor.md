@@ -336,6 +336,19 @@ carries no modifiers, so the chord is recorded on keydown without
 `LocalFilePicker` is a cached `import()` chunk, which keeps fzf out of the
 entry.
 
+### Page templates
+
+"Click to start writing…" on an empty page calls
+`useOutline.createFirstBlock`. It creates the blocks
+`templates/pageTemplates.ts::firstBlockTexts` returns for the title: those
+of the markdown file in `web/src/templates/` named for the title's
+namespace (`Paper.md` for `Paper/…`), else one empty block. All of them go
+in one `run()`, so one undo removes them. A template is seeded only on that
+click, never when a page is opened or created. Viewing a page must not
+write, and two devices opening the same new page must not both seed it.
+`templates/load.ts` bundles the files with `import.meta.glob`, so they work
+offline and sit in the entry chunk.
+
 ### The bullet and the block menu
 
 The `.bullet` span is the block menu's only keyboard route (a focusable

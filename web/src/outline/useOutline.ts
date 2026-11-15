@@ -15,7 +15,9 @@ import { findOpTitleViolation, linkedTitleRefusal,
 import { assetMarkdown, uploadAsset } from "../sync/assets";
 import { useSyncActions, useSyncEditability } from "../sync/SyncProvider";
 import { newUid } from "../uid";
-import { FIRST_ORDER_IDX } from "./orderIdx";
+import { PAGE_TEMPLATES } from "../templates/load";
+import { firstBlockTexts } from "../templates/pageTemplates";
+import { FIRST_ORDER_IDX, orderIdxPlus } from "./orderIdx";
 import type { DropTarget, OutlineDndApi } from "./dnd";
 import { planCommand } from "./command";
 import { fileDropNotice, type FileDropPlan, partitionUploadable, planFileDropBlocks,
@@ -702,12 +704,14 @@ export function useOutline(
   const createFirstBlock = useCallback(() => {
     run((b) => {
       if (b.length > 0) return { blocks: b, ops: [], focus: null };
-      const uid = newUid();
-      const ops: BlockOp[] = [{ op: "create", uid, page_title: pageTitle,
-                                parent_uid: null, order_idx: FIRST_ORDER_IDX,
-                                text: "" }];
+      const seeds = firstBlockTexts(pageTitle, PAGE_TEMPLATES)
+        .map((text) => ({ uid: newUid(), text }));
+      const ops: BlockOp[] = seeds.map(({ uid, text }, i) => ({
+        op: "create", uid, page_title: pageTitle, parent_uid: null,
+        order_idx: orderIdxPlus(FIRST_ORDER_IDX, i), text }));
+      const [first] = seeds;
       return { blocks: applyOps(b, ops, pageTitle), ops,
-               focus: { uid, cursor: 0 } };
+               focus: { uid: first.uid, cursor: first.text.length } };
     });
   }, [run, pageTitle]);
 

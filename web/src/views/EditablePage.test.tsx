@@ -37,11 +37,11 @@ afterEach(() => {
 function mount(sync = makeSync(), initial = [
   block("tuid-u1", "first", { order_idx: orderIdxOf(0) }),
   block("tuid-u2", "second", { order_idx: orderIdxOf(1) }),
-]) {
+], titleText = "Page") {
   render(
     <MemoryRouter>
       <SyncContext.Provider value={sync}>
-        <EditablePage title={canonicalTitleOf("Page")} initial={initial} />
+        <EditablePage title={canonicalTitleOf(titleText)} initial={initial} />
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
@@ -588,6 +588,28 @@ test("empty page shows the start-writing affordance which creates block zero", (
   expect(sync.sent[0][0]).toMatchObject({ op: "create", page_title: "Page",
                                           parent_uid: null, order_idx: 0, text: "" });
   expect(screen.getByRole("textbox")).toBeInTheDocument();
+});
+
+test("start-writing on a Paper/ page seeds the Paper template in one batch", () => {
+  const sync = mount(makeSync(), [], "Paper/X");
+  fireEvent.click(screen.getByRole("button", { name: /start writing/i }));
+  expect(sync.sent).toHaveLength(1);
+  expect(sync.sent[0].map((o) => o.op === "create" && [
+    o.text, o.order_idx, o.parent_uid, o.page_title])).toEqual([
+    ["Tags:: #Paper", 0, null, "Paper/X"], ["URL:: ", 1, null, "Paper/X"],
+    ["Date:: ", 2, null, "Paper/X"], ["Local copy:: ", 3, null, "Paper/X"]]);
+  const ta = textbox();
+  expect(ta.value).toBe("Tags:: #Paper");
+  expect(ta.selectionStart).toBe("Tags:: #Paper".length);
+});
+
+test("one undo removes every seeded template block", () => {
+  const sync = mount(makeSync(), [], "Book/Y");
+  fireEvent.click(screen.getByRole("button", { name: /start writing/i }));
+  undoKey();
+  expect(sync.sent.at(-1)!.filter((o) => o.op === "delete")).toHaveLength(6);
+  expect(screen.getByRole("button", { name: /start writing/i }))
+    .toBeInTheDocument();
 });
 
 test("editing is read-only while the socket is not connected", () => {

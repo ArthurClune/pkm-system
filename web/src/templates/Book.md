@@ -1,0 +1,6 @@
+- Tags:: #Book
+- Author::
+- Reading Status::
+- Published::
+- Format::
+- Summary::

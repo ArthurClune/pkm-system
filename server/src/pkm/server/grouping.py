@@ -17,7 +17,7 @@ from pkm.changed import ChangeStatus
 from pkm.contracts.ops import BlockUid, PageId
 from pkm.contracts.responses import (BacklinkGroup, BacklinkItem,
                                      BlockGroup, ChangedGroup, ChangedItem,
-                                     GroupItem)
+                                     GroupItem, QueryGroup, QueryItem)
 from pkm.refs import CanonicalTitle
 from pkm.rows import Row
 from pkm.server.tree import Ancestors
@@ -92,4 +92,26 @@ def group_backlinks(rows: Sequence[Row],
     return [BacklinkGroup(
         page_id=pid, page_title=titles[pid], items=items,
         ancestor_texts=[ancestors.texts[uid] for uid in positions[pid]])
+        for pid, items in index.items()]
+
+
+def group_query_results(rows: Sequence[Row],
+                        ancestors: Ancestors) -> list[QueryGroup]:
+    """Rows of `uid, text, page_id, page_title` -> page groups numbering
+    ancestors the way `group_backlinks` does, with their uids alongside so
+    the parent line can link."""
+    titles: dict[PageId, CanonicalTitle] = {}
+    index: dict[PageId, list[QueryItem]] = {}
+    positions: dict[PageId, dict[BlockUid, int]] = {}
+    for r in rows:
+        items = index.setdefault(r["page_id"], [])
+        titles.setdefault(r["page_id"], r["page_title"])
+        seen = positions.setdefault(r["page_id"], {})
+        trail = [seen.setdefault(uid, len(seen))
+                 for uid in ancestors.trails.get(r["uid"], [])]
+        items.append(QueryItem(uid=r["uid"], text=r["text"], ancestors=trail))
+    return [QueryGroup(
+        page_id=pid, page_title=titles[pid], items=items,
+        ancestor_texts=[ancestors.texts[uid] for uid in positions[pid]],
+        ancestor_uids=list(positions[pid]))
         for pid, items in index.items()]

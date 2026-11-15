@@ -1795,13 +1795,45 @@ export interface components {
             };
         };
         /**
+         * QueryGroup
+         * @description One page's query results. `ancestor_texts` and `ancestor_uids` are
+         *     aligned and hold each distinct parent its items name, once, in
+         *     first-appearance order; both left out when no item is nested.
+         */
+        QueryGroup: {
+            /** Page Id */
+            page_id: Brands.PageId;
+            /** Page Title */
+            page_title: Brands.CanonicalTitle;
+            /** Items */
+            items: components["schemas"]["QueryItem"][];
+            /** Ancestor Texts */
+            ancestor_texts?: string[];
+            /** Ancestor Uids */
+            ancestor_uids?: Brands.BlockUid[];
+        };
+        /**
+         * QueryItem
+         * @description A query result. `ancestors` is its parent line: one position in its
+         *     group's `ancestor_texts`, left out for a top-level block. Only the
+         *     direct parent, not the whole trail.
+         */
+        QueryItem: {
+            /** Uid */
+            uid: Brands.BlockUid;
+            /** Text */
+            text: string;
+            /** Ancestors */
+            ancestors?: number[];
+        };
+        /**
          * QueryPayload
          * @description GET /api/query: groups plus per-operand match counts so an empty
          *     result is steerable (bad query shape vs genuinely nothing).
          */
         QueryPayload: {
             /** Groups */
-            groups: components["schemas"]["BlockGroup"][];
+            groups: components["schemas"]["QueryGroup"][];
             /** Total */
             total: number;
             /** Ref Counts */

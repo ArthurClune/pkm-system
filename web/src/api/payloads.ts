@@ -19,6 +19,7 @@ export type BlockBacklinksPayload = Schemas["BlockBacklinksPayload"];
 export type PagePayload = Schemas["PagePayload"];
 
 export type BlockGroup = Schemas["BlockGroup"];
+export type QueryGroup = Schemas["QueryGroup"];
 export type GroupsPayload = Schemas["GroupsPayload"];
 
 export type JournalDay = Schemas["JournalDay"];

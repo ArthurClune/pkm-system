@@ -4150,11 +4150,82 @@
         ],
         "title": "PagePayload"
       },
+      "QueryGroup": {
+        "properties": {
+          "page_id": {
+            "type": "integer",
+            "title": "Page Id",
+            "x-brand": "PageId"
+          },
+          "page_title": {
+            "type": "string",
+            "title": "Page Title",
+            "x-brand": "CanonicalTitle"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QueryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "ancestor_texts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ancestor Texts"
+          },
+          "ancestor_uids": {
+            "items": {
+              "type": "string",
+              "x-brand": "BlockUid"
+            },
+            "type": "array",
+            "title": "Ancestor Uids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_id",
+          "page_title",
+          "items"
+        ],
+        "title": "QueryGroup",
+        "description": "One page's query results. `ancestor_texts` and `ancestor_uids` are\naligned and hold each distinct parent its items name, once, in\nfirst-appearance order; both left out when no item is nested."
+      },
+      "QueryItem": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "title": "Uid",
+            "x-brand": "BlockUid"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "ancestors": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Ancestors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "uid",
+          "text"
+        ],
+        "title": "QueryItem",
+        "description": "A query result. `ancestors` is its parent line: one position in its\ngroup's `ancestor_texts`, left out for a top-level block. Only the\ndirect parent, not the whole trail."
+      },
       "QueryPayload": {
         "properties": {
           "groups": {
             "items": {
-              "$ref": "#/components/schemas/BlockGroup"
+              "$ref": "#/components/schemas/QueryGroup"
             },
             "type": "array",
             "title": "Groups"

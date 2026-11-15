@@ -1,6 +1,6 @@
 """Breadcrumb ancestor reads against the path-string walk they replaced.
 
-`routes_pages._fetch_ancestors` used to carry, on every row of its
+`ancestors_db.fetch_ancestors` used to carry, on every row of its
 recursive CTE, a string of every uid above that row, and to search it to
 stop on a parent cycle. Breadcrumbs for every block of a chain `d` deep then
 cost about `d³`. The walk now reads each distinct ancestor once and rebuilds
@@ -20,9 +20,9 @@ from hostile import count, event
 from pkm.contracts.ops import MAX_OUTLINE_DEPTH, BlockUid
 from pkm.database import Db
 from pkm.schema import DDL
-from pkm.server import routes_pages
+from pkm.server import ancestors_db
 from pkm.server.db import init_db, open_db
-from pkm.server.routes_pages import _fetch_ancestors
+from pkm.server.ancestors_db import fetch_ancestors, fetch_parents
 from pkm.server.sync_core import chunk_ids
 from pkm.server.tree import Ancestors, ancestor_trails, ancestors_of
 from pkm.test_data.ids import uid_of
@@ -30,7 +30,7 @@ from pkm.test_data.ids import uid_of
 
 def _reference_fetch_ancestors(db: Db, uids: list[BlockUid]
                                ) -> dict[BlockUid, list[str]]:
-    """`_fetch_ancestors` as it was with the per-row path string."""
+    """`fetch_ancestors` as it was with the per-row path string."""
     out: dict[BlockUid, list[str]] = {}
     for chunk in chunk_ids(list(dict.fromkeys(uids))):
         marks = ",".join("?" * len(chunk))
@@ -176,9 +176,9 @@ def test_fetch_ancestors_matches_the_path_string_walk(db, case):
     parents, starts, chunk = case
     _label(parents, starts, chunk)
     _store(db, parents)
-    with patch.object(routes_pages, "chunk_ids",
+    with patch.object(ancestors_db, "chunk_ids",
                       lambda ids: chunk_ids(ids, chunk)):
-        got = _as_texts(_fetch_ancestors(db, starts))
+        got = _as_texts(fetch_ancestors(db, starts))
     assert got == _reference_fetch_ancestors(db, starts)
 
 
@@ -186,7 +186,7 @@ def test_a_chain_at_the_outline_cap_matches(db):
     parents = _chain(MAX_OUTLINE_DEPTH + 1)
     _store(db, parents)
     starts = [uid_of(u) for u in parents]
-    got = _as_texts(_fetch_ancestors(db, starts))
+    got = _as_texts(fetch_ancestors(db, starts))
     assert got == _reference_fetch_ancestors(db, starts)
     assert len(got[starts[-1]]) == MAX_OUTLINE_DEPTH
 
@@ -197,7 +197,7 @@ def test_a_cycle_as_long_as_the_outline_cap_matches(db):
     parents[first] = last
     _store(db, parents)
     starts = [uid_of(u) for u in parents]
-    got = _as_texts(_fetch_ancestors(db, starts))
+    got = _as_texts(fetch_ancestors(db, starts))
     assert got == _reference_fetch_ancestors(db, starts)
     assert all(len(trail) == MAX_OUTLINE_DEPTH for trail in got.values())
 
@@ -216,7 +216,7 @@ def _vm_steps(db: Db, depth: int) -> int:
 
     db.raw.set_progress_handler(tick, 100)
     try:
-        _fetch_ancestors(db, [uid_of(u) for u in parents])
+        fetch_ancestors(db, [uid_of(u) for u in parents])
     finally:
         db.raw.set_progress_handler(None, 0)
     return steps
@@ -229,3 +229,19 @@ def test_ancestor_query_work_is_linear_in_depth(db):
     # the path-string walk made, quadruples it.
     shallow, deep = _vm_steps(db, 200), _vm_steps(db, 400)
     assert deep < 3 * shallow, (shallow, deep)
+
+
+def test_fetch_parents_is_one_statement_whatever_the_depth(db):
+    from rawread import trace
+    seen: list[str] = []
+    for depth in (3, 80):
+        parents = _chain(depth)
+        _store(db, parents)
+        seen.clear()
+        trace(db, seen.append)
+        got = fetch_parents(db, [uid_of(u) for u in parents])
+        trace(db, None)
+        assert len(seen) == 1
+        last = f"chain_{depth - 1:05d}"
+        assert got.trails[uid_of(last)] == [uid_of(f"chain_{depth - 2:05d}")]
+        assert uid_of("chain_00000") not in got.trails

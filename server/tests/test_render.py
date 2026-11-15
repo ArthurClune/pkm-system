@@ -17,7 +17,8 @@ from pkm.contracts.responses import (AssetRef, AssetSearchItem,
                                      AssetSearchPayload, BacklinkGroup,
                                      BacklinkItem, Backlinks, BlockGroup,
                                      ChangedGroup, ChangedItem,
-                                     GroupItem, SearchBlockHit, SearchPageHit,
+                                     GroupItem, QueryGroup, QueryItem,
+                                     SearchBlockHit, SearchPageHit,
                                      TitleMigrationBlocker, TitleMigrationGroup,
                                      TitleMigrationPage,
                                      BlockNode, BlockPayload, BlockRefText,
@@ -143,7 +144,10 @@ def test_render_groups_empty_with_ref_counts_hint():
 
 
 def test_render_groups_no_hint_when_results_exist():
-    payload = QueryPayload(groups=[_group("tuid-t1", "x")], total=1,
+    group = QueryGroup(
+        page_id=page_id_of(1), page_title=canonical_title_of("AI"),
+        items=[QueryItem(uid=uid_of("tuid-t1"), text="x")])
+    payload = QueryPayload(groups=[group], total=1,
                            ref_counts={canonical_title_of("AI"): 1})
     assert "per-ref" not in render_groups(payload)
 

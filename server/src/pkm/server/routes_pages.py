@@ -27,6 +27,7 @@ from pkm.refs import (CanonicalTitle, canonical_daily_title,
                       title_length_over, title_syntax_reason)
 from pkm.rows import Row
 from pkm.server import notify
+from pkm.server.ancestors_db import fetch_ancestors
 from pkm.server.auth import require_auth
 from pkm.server.grouping import group_backlinks, group_by_page
 from pkm.server.daily import (is_page_empty, past_week_dates,
@@ -43,7 +44,7 @@ from pkm.server.store import (BlankTitleError, DeleteBlockedError,
                               RewriteTextLimitError)
 from pkm.server.sync_core import chunk_ids
 from pkm.server.sync_meta import read_title, title_reader
-from pkm.server.tree import (BLOCK_COLS, Ancestors, ancestors_of, build_tree,
+from pkm.server.tree import (BLOCK_COLS, Ancestors, build_tree,
                              collect_block_ref_uids, find_node)
 from pkm.server import wholepath  # noqa: F401 -- registers {title:wholepath}
 from pkm.unlink import DeleteBlocker
@@ -111,34 +112,6 @@ def _page_meta(page: Row) -> PageMeta:
                     updated_at=page["updated_at"])
 
 
-def _fetch_ancestors(db: Db, uids: list[BlockUid]) -> Ancestors:
-    """Breadcrumb trails (ancestor uids, root first) for each uid that has
-    ancestors, and each ancestor's text once. The CTE holds `uid` alone
-    and joins with UNION, which queues a row only once, so each distinct
-    ancestor is read once however many starts share it, and a corrupt
-    parent cycle ends the walk without a depth bound that would cut real
-    deep chains short. It must never carry a per-row path string: one row
-    per (start, ancestor), each building and searching an O(depth) string,
-    made breadcrumbs cost O(depth^3).
-    `ancestor_trails` rebuilds the trails and stops on a repeated uid."""
-    starts = list(dict.fromkeys(uids))
-    blocks: dict[BlockUid, tuple[BlockUid | None, str]] = {}
-    for chunk in chunk_ids(starts):
-        marks = ",".join("?" * len(chunk))
-        for r in db.select(
-                f"""WITH RECURSIVE anc(uid) AS (
-                      SELECT uid FROM blocks WHERE uid IN ({marks})
-                      UNION
-                      SELECT b.parent_uid FROM anc a
-                        JOIN blocks b ON b.uid = a.uid
-                       WHERE b.parent_uid IS NOT NULL
-                    )
-                    SELECT b.uid, b.parent_uid, b.text
-                      FROM anc JOIN blocks b ON b.uid = anc.uid""", chunk):
-            blocks[r["uid"]] = (r["parent_uid"], r["text"])
-    return ancestors_of(starts, blocks)
-
-
 def _breadcrumb_texts(ancestors: Ancestors, uid: BlockUid) -> list[str]:
     """One block's trail as texts: a single trail is `O(depth)`, so
     `GET /api/block/{uid}` sends it whole rather than as uids and a map."""
@@ -178,7 +151,7 @@ def _backlinks(db: Db, page_id: PageId,
              WHERE r.target_page_id = ? AND b.page_id IN ({marks})
              ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
         [page_id, *page_ids])
-    ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
+    ancestors = fetch_ancestors(db, [r["uid"] for r in rows])
     return (Backlinks(groups=group_backlinks(rows, ancestors),
                       total_pages=total, offset=offset, limit=limit),
             [r["text"] for r in rows])
@@ -220,7 +193,7 @@ def get_block_backlinks(uid: BlockUid = Depends(path_uid),
             WHERE r.target_block_uid = ?
             ORDER BY p.updated_at DESC NULLS LAST, p.title, b.uid""",
         (uid,))
-    ancestors = _fetch_ancestors(db, [r["uid"] for r in rows])
+    ancestors = fetch_ancestors(db, [r["uid"] for r in rows])
     return BlockBacklinksPayload(
         groups=group_backlinks(rows, ancestors))
 
@@ -245,7 +218,7 @@ def get_block(uid: BlockUid = Depends(path_uid),
     return BlockPayload(
         page=_page_meta(row),
         block=node,
-        breadcrumbs=_breadcrumb_texts(_fetch_ancestors(db, [uid]), uid),
+        breadcrumbs=_breadcrumb_texts(fetch_ancestors(db, [uid]), uid),
         block_ref_texts=_block_ref_texts(db, texts),
     )
 

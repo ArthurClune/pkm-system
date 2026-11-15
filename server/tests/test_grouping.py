@@ -6,7 +6,7 @@ from pkm.contracts.responses import (BacklinkGroup, BlockGroup, ChangedGroup,
 from pkm.rows import Row
 from pkm.server.tree import Ancestors
 from pkm.server.grouping import (ChangedRow, group_backlinks, group_by_page,
-                                 group_changed)
+                                 group_changed, group_query_results)
 from pkm.test_data.ids import canonical_title_of, page_id_of, uid_of
 from pkm.contracts.ops import BlockUid, PageId
 
@@ -95,3 +95,18 @@ def test_group_changed_pure():
     assert [g.page_id for g in groups] == [1, 2]
     assert all(isinstance(i, ChangedItem) for i in groups[0].items)
     assert [i.uid for i in groups[0].items] == ["tuid-a", "tuid-c"]
+
+
+def test_group_query_results_dedupes_shared_ancestors():
+    rows = [
+        _block(uid_of("tuid-q1"), "t1", page_id_of(7), "P1"),
+        _block(uid_of("tuid-q2"), "t2", page_id_of(7), "P1"),
+    ]
+    parent = uid_of("tuid-qp")
+    groups = group_query_results(rows, Ancestors(
+        trails={uid_of("tuid-q1"): [parent], uid_of("tuid-q2"): [parent]},
+        texts={parent: "parent text"}))
+    [group] = groups
+    assert group.ancestor_texts == ["parent text"]
+    assert group.ancestor_uids == [parent]
+    assert [i.ancestors for i in group.items] == [[0], [0]]

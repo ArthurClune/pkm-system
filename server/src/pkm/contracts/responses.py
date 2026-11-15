@@ -218,9 +218,43 @@ class GroupsPayload(StrictModel):
     total: int
 
 
-class QueryPayload(GroupsPayload):
+class QueryItem(GroupItem):
+    """A query result. `ancestors` is its parent line: one position in its
+    group's `ancestor_texts`, left out for a top-level block. Only the
+    direct parent, not the whole trail."""
+    ancestors: list[int] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
+        return _omit_empty(self, handler, "ancestors")
+
+
+class QueryGroup(StrictModel):
+    """One page's query results. `ancestor_texts` and `ancestor_uids` are
+    aligned and hold each distinct parent its items name, once, in
+    first-appearance order; both left out when no item is nested."""
+    page_id: PageId
+    page_title: CanonicalTitle
+    items: list[QueryItem]
+    ancestor_texts: list[str] = Field(default_factory=list)
+    ancestor_uids: list[BlockUid] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
+        # No return annotation: pydantic reads it into the OpenAPI schema.
+        data = handler(self)
+        if isinstance(data, dict) and not data.get("ancestor_texts"):
+            data.pop("ancestor_texts", None)
+            data.pop("ancestor_uids", None)
+        return data
+
+
+class QueryPayload(StrictModel):
     """GET /api/query: groups plus per-operand match counts so an empty
     result is steerable (bad query shape vs genuinely nothing)."""
+    groups: list[QueryGroup]
+    total: int
     ref_counts: dict[CanonicalTitle, int]
 
 

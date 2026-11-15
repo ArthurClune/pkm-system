@@ -4,7 +4,9 @@ import pytest
 from pkm.server.db import open_db
 from pkm.server.query import (
     MAX_QUERY_DEPTH, MAX_QUERY_OPERANDS, QueryParseError, parse_query)
-from pkm.test_data.ids import canonical_title_of
+from pkm.contracts.ops import BlockUid
+from pkm.contracts.titles import RawTitle
+from pkm.test_data.ids import canonical_title_of, raw_title_of, uid_of
 from pkm.database import connect
 
 
@@ -225,3 +227,51 @@ def test_query_route_expand_at_the_operand_limit_still_runs(client):
     r = client.get("/api/query", params={
         "expr": _wide("or", MAX_QUERY_OPERANDS), "expand": "true"})
     assert r.status_code == 200
+
+
+def _create(client, uid: BlockUid, page: RawTitle,
+            parent: BlockUid | None, text: str, order: int):
+    r = client.post("/api/ops", json={
+        "client_id": "test", "batch_id": f"batch-{uid}",
+        "ops": [{"op": "create", "uid": uid, "page_title": page,
+                 "parent_uid": parent, "order_idx": order, "text": text}]})
+    assert r.status_code == 200, r.text
+
+
+def test_query_item_carries_parent_line(client):
+    parent = uid_of("qa_parent")
+    _create(client, parent, raw_title_of("Reading"), None, "Some Paper", 10)
+    _create(client, uid_of("qa_child"), raw_title_of("Reading"), parent,
+            "Tags:: #Paper", 10)
+    body = client.get("/api/query", params={"expr": "{and: [[Paper]]}"}).json()
+    [group] = [g for g in body["groups"] if g["page_title"] == "Reading"]
+    [item] = group["items"]
+    assert item["text"].startswith("Tags::")
+    assert item["ancestors"] == [0]
+    assert group["ancestor_texts"] == ["Some Paper"]
+    assert group["ancestor_uids"] == [parent]
+
+
+def test_top_level_result_has_no_ancestor_fields(client):
+    _create(client, uid_of("qa_top"), raw_title_of("Reading"), None,
+            "Tags:: #Paper", 10)
+    body = client.get("/api/query", params={"expr": "{and: [[Paper]]}"}).json()
+    [group] = [g for g in body["groups"] if g["page_title"] == "Reading"]
+    [item] = group["items"]
+    assert "ancestors" not in item
+    assert "ancestor_texts" not in group
+    assert "ancestor_uids" not in group
+
+
+def test_deeply_nested_result_carries_only_its_parent(client):
+    grand, parent = uid_of("qa_grand"), uid_of("qa_mid")
+    page = raw_title_of("Reading")
+    _create(client, grand, page, None, "Grandparent", 10)
+    _create(client, parent, page, grand, "Parent", 10)
+    _create(client, uid_of("qa_leaf"), page, parent, "Tags:: #Paper", 10)
+    body = client.get("/api/query", params={"expr": "{and: [[Paper]]}"}).json()
+    [group] = [g for g in body["groups"] if g["page_title"] == "Reading"]
+    [item] = group["items"]
+    assert item["ancestors"] == [0]
+    assert group["ancestor_texts"] == ["Parent"]
+    assert group["ancestor_uids"] == [parent]

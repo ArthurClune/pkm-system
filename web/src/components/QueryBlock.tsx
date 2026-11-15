@@ -1,11 +1,15 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useContext, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
 import { OfflineError } from "../api/client";
 import { apiGet } from "../api/typedClient";
-import type { BlockGroup } from "../api/payloads";
+import type { QueryGroup } from "../api/payloads";
 import { useStaleGuard } from "../useStaleGuard";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
+import { SidebarContext } from "../contexts";
+import { pagePath } from "../paths";
+import { MISSING_ANCESTOR_TEXT } from "./groups";
 import { PageLink } from "./PageLink";
 
 // A query whose results contain another {{query}} (e.g. a self-matching
@@ -14,8 +18,10 @@ import { PageLink } from "./PageLink";
 const MAX_DEPTH = 2;
 
 export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }) {
+  const navigate = useNavigate();
+  const { openInSidebar } = useContext(SidebarContext);
   const capped = depth >= MAX_DEPTH;
-  const [groups, setGroups] = useState<BlockGroup[]>([]);
+  const [groups, setGroups] = useState<QueryGroup[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +76,27 @@ export function QueryBlock({ expr, depth = 0 }: { expr: string; depth?: number }
           <div className="group-title"><PageLink title={g.page_title} tag={false} /></div>
           {g.items.map((item) => (
             <div className="query-item" key={item.uid}>
+              {item.ancestors && item.ancestors.length > 0 && (
+                <div className="breadcrumbs">
+                  {item.ancestors.map((at, i) => {
+                    const uid = g.ancestor_uids?.[at];
+                    const text = g.ancestor_texts?.[at] ?? MISSING_ANCESTOR_TEXT;
+                    const href = `${pagePath(g.page_title)}#${uid ?? ""}`;
+                    return (
+                      <Fragment key={i}>
+                        {i > 0 && " › "}
+                        <a className="query-crumb" href={href}
+                           onClick={(e) => {
+                             e.preventDefault();
+                             e.stopPropagation();
+                             if (e.shiftKey && uid) openInSidebar(g.page_title, uid);
+                             else void navigate(href);
+                           }}>{text}</a>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              )}
               <InlineSegments segments={tokenizeBlock(item.text)} depth={depth + 1} />
             </div>
           ))}

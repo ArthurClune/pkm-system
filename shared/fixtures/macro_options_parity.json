@@ -1,0 +1,242 @@
+{
+  "cases": [
+    {
+      "body": "{and: [[Book]]}",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "{and: [[Book]]} | view: table | filter: -status:read | sort: Published desc | columns: Author, Reading Status",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": "table",
+        "filter": "-status:read",
+        "sort": [
+          "Published",
+          "desc"
+        ],
+        "columns": [
+          "Author",
+          "Reading Status"
+        ]
+      },
+      "formatted": " | view: table | filter: -status:read | sort: Published desc | columns: Author, Reading Status"
+    },
+    {
+      "body": "table",
+      "head": "table",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "table | sort: Cache hit asc",
+      "head": "table",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": [
+          "Cache hit",
+          "asc"
+        ],
+        "columns": null
+      },
+      "formatted": " | sort: Cache hit asc"
+    },
+    {
+      "body": "table | view: cards",
+      "head": "table",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: cards"
+    },
+    {
+      "body": "{and: [[Book]]} | view: blocks",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": "blocks",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: blocks"
+    },
+    {
+      "body": "{and: [[Book]]}   |   view:   cards   |  sort:  Title   asc  ",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": [
+          "Title",
+          "asc"
+        ],
+        "columns": null
+      },
+      "formatted": " | view: cards | sort: Title asc"
+    },
+    {
+      "body": "{and: [[Book]]} | colour: red",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "{and: [[Book]]} | VIEW: Table | View: cards",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": "cards",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: cards"
+    },
+    {
+      "body": "{and: [[Book]]} | view: cards | view: blocks",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": "blocks",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: blocks"
+    },
+    {
+      "body": "{and: [[Book]]} | sort: Published sideways | view: table",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": "table",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: table"
+    },
+    {
+      "body": "{and: [[Book]]} | sort: desc",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "{and: [[Book]]} | columns: , A ,, B ,",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": [
+          "A",
+          "B"
+        ]
+      },
+      "formatted": " | columns: A, B"
+    },
+    {
+      "body": "{and: [[Book]]} | columns: ,",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "{and: [[Book]]} | filter: a: b",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": "a: b",
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | filter: a: b"
+    },
+    {
+      "body": "{or: [[A | B]] [[C]]} | view: table",
+      "head": "{or: [[A | B]] [[C]]}",
+      "options": {
+        "view": "table",
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": " | view: table"
+    },
+    {
+      "body": "{and: [[A | B]]} | sort: Title asc",
+      "head": "{and: [[A | B]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": [
+          "Title",
+          "asc"
+        ],
+        "columns": null
+      },
+      "formatted": " | sort: Title asc"
+    },
+    {
+      "body": "{and: [[Book]]}|view: table",
+      "head": "{and: [[Book]]}|view: table",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "{and: [[Book]]} | view: table |",
+      "head": "{and: [[Book]]}",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    },
+    {
+      "body": "",
+      "head": "",
+      "options": {
+        "view": null,
+        "filter": null,
+        "sort": null,
+        "columns": null
+      },
+      "formatted": ""
+    }
+  ]
+}

@@ -22,6 +22,23 @@ from pkm.test_data.ids import canonical_title_of
 
 # -- find_query_macros --------------------------------------------------
 
+def test_query_macro_with_options_resolves():
+    macros = find_query_macros("{{query: {and: [[AI]]} | view: table}}")
+    assert [expr for _, _, expr in macros] == ["{and: [[AI]]}"]
+
+
+def test_query_macro_options_after_a_ref_with_a_separator():
+    macros = find_query_macros("{{query: {and: [[A | B]]} | view: cards}}")
+    assert [expr for _, _, expr in macros] == ["{and: [[A | B]]}"]
+
+
+def test_resolve_text_executes_query_macro_with_options():
+    result = QueryResult(total=1, groups=_groups(("Page A", [("u1", "hit")])))
+    out = resolve_text("{{query: {and: [[Tag]]} | sort: A desc}}",
+                       {}, {"{and: [[Tag]]}": result})
+    assert "hit" in out and "{{query:" not in out
+
+
 def test_find_query_macros_finds_query_prefix():
     text = "before {{query: {and: [[Foo]]}}} after"
     macros = find_query_macros(text)

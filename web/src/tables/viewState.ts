@@ -93,26 +93,32 @@ export function stepView(s: ViewState, e: ViewEvent): ViewState {
   }
 }
 
+/** What a block shows with no options: the view and columns its data
+ * suggests. A default is never sorted or filtered, because no option can
+ * spell "no sort" or an empty filter to override one. */
+export type ViewDefaults = Pick<ViewFields, "view" | "columns">;
+
 /** The view a macro's options give, each missing option read as the
  * block's default. */
-export function viewFromOptions(o: MacroOptions, defaults: ViewFields): ViewFields {
+export function viewFromOptions(o: MacroOptions, defaults: ViewDefaults): ViewFields {
   return {
-    filter: o.filter ?? defaults.filter,
-    sort: o.sort ?? defaults.sort,
+    filter: o.filter ?? "",
+    sort: o.sort ?? null,
     view: o.view ?? defaults.view,
     columns: o.columns ?? defaults.columns,
   };
 }
 
 /** The options that save `v`: only the fields that differ from the
- * defaults. No sort, an empty filter and an empty column list have no
- * option to spell them, so they read back as the default; a block's
- * defaults are unsorted and unfiltered, which leaves only the column list. */
-export function optionsFromView(v: ViewFields, defaults: ViewFields): MacroOptions {
+ * defaults. A view or column list equal to the data's default is left out
+ * on purpose, so the block keeps following the data when that default
+ * changes; writing `view:` every time would pin it. An empty column list
+ * has no option to spell it, so it reads back as the default columns. */
+export function optionsFromView(v: ViewFields, defaults: ViewDefaults): MacroOptions {
   const o: MacroOptions = {};
   if (v.view !== defaults.view) o.view = v.view;
-  if (stored(v.filter) !== stored(defaults.filter)) o.filter = stored(v.filter);
-  if (v.sort !== null && !sameSort(v.sort, defaults.sort)) o.sort = v.sort;
+  if (stored(v.filter) !== "") o.filter = stored(v.filter);
+  if (v.sort !== null) o.sort = v.sort;
   if (!sameColumns(v.columns, defaults.columns)) o.columns = v.columns;
   return o;
 }

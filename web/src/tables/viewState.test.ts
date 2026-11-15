@@ -5,7 +5,7 @@ import {
 } from "../grammar/macroOptions";
 import {
   initialView, isDirty, optionsFromView, stepView, viewFromOptions,
-  type ViewEvent, type ViewFields, type ViewState,
+  type ViewDefaults, type ViewEvent, type ViewFields, type ViewState,
 } from "./viewState";
 
 const SAVED: ViewFields = {
@@ -137,12 +137,8 @@ describe("loaded, a refetch of the saved view", () => {
   });
 });
 
-/** Defaults are unsorted and unfiltered: an empty filter or no sort has no
- * option to spell it, so a view needs one only when its default does not. */
 const name = fc.stringMatching(/^[A-Za-z](?:[A-Za-z ]{0,6}[A-Za-z])?$/);
-const defaultsArb: fc.Arbitrary<ViewFields> = fc.record({
-  filter: fc.constant(""),
-  sort: fc.constant(null),
+const defaultsArb: fc.Arbitrary<ViewDefaults> = fc.record({
   view: fc.constantFrom("table", "cards", "blocks"),
   columns: fc.array(name, { maxLength: 3 }),
 });
@@ -155,17 +151,26 @@ const viewArb: fc.Arbitrary<ViewFields> = fc.record({
 });
 
 describe("views and macro options", () => {
+  const DEFAULTS: ViewDefaults = { view: "table", columns: ["Author", "Published"] };
+
   it("options omit every field equal to the default", () => {
-    expect(optionsFromView(SAVED, SAVED)).toEqual({});
-    expect(optionsFromView({ ...SAVED, filter: " apache " }, SAVED)).toEqual({});
-    expect(optionsFromView({ ...SAVED, view: "cards" }, SAVED))
-      .toEqual({ view: "cards" });
+    expect(optionsFromView({ ...SAVED, filter: " ", sort: null }, DEFAULTS))
+      .toEqual({});
+    expect(optionsFromView({ ...SAVED, view: "cards" }, DEFAULTS))
+      .toEqual({ view: "cards", filter: "apache",
+                 sort: { col: "Published", dir: "desc" } });
   });
 
-  it("missing options read as the defaults", () => {
-    expect(viewFromOptions({}, SAVED)).toEqual(SAVED);
-    expect(viewFromOptions({ filter: "x", sort: { col: "A", dir: "asc" } }, SAVED))
-      .toEqual({ ...SAVED, filter: "x", sort: { col: "A", dir: "asc" } });
+  it("a filter is saved trimmed", () => {
+    expect(optionsFromView({ ...SAVED, filter: " apache ", sort: null }, DEFAULTS))
+      .toEqual({ filter: "apache" });
+  });
+
+  it("missing options read as the defaults, unsorted and unfiltered", () => {
+    expect(viewFromOptions({}, DEFAULTS))
+      .toEqual({ filter: "", sort: null, ...DEFAULTS });
+    expect(viewFromOptions({ filter: "x", sort: { col: "A", dir: "asc" } }, DEFAULTS))
+      .toEqual({ ...DEFAULTS, filter: "x", sort: { col: "A", dir: "asc" } });
   });
 
   it("a view round-trips through its options", () => {

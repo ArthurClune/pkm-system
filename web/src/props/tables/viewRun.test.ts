@@ -46,4 +46,15 @@ describe("the view-state property's runner", () => {
     const run = runViewExample({ saved: SAVED, steps: [{ kind: "filter", text: "apache " }] }, raw);
     expect(run.problems).toEqual([expect.stringMatching(/^dirty: isDirty true/)]);
   });
+
+  it("sees a Save that leaves the view dirty", () => {
+    const ignores: ViewMachine = {
+      ...REAL, step: (s, e) => e.kind === "saved" ? s : REAL.step(s, e),
+    };
+    const run = runViewExample(
+      { saved: SAVED, steps: [{ kind: "filter", text: "kafka" }, { kind: "saved" }] },
+      ignores);
+    expect(run.problems).toContainEqual(expect.stringMatching(/^saved: /));
+    expect(run.problems).toContainEqual("clean: still dirty after saved (step 1)");
+  });
 });

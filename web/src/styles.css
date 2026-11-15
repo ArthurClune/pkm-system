@@ -930,6 +930,61 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .query-header { display: flex; justify-content: space-between; font-size: 12px;
   color: var(--color-text-muted); margin-bottom: 4px; }
 
+/* == Tables == */
+/* DataTable, shared by query tables and {{table}} blocks; the cell look
+ * matches .roam-table so the two read as one object */
+.data-table-scroll { display: block; width: 100%; overflow-x: auto; margin: 4px 0; }
+.data-table { width: 100%; min-width: max-content; border-collapse: collapse; }
+.data-table th, .data-table td { border: 1px solid var(--color-border);
+  padding: 6px 8px; vertical-align: top; text-align: left; }
+.data-table th { background: var(--color-bg-subtle); padding: 0; }
+.data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.editable { cursor: text; }
+/* the header is a button for keyboard access; it fills the th. The ring
+ * sits inside, or the scroll box clips it on the edge columns */
+.data-table-sort { display: flex; align-items: center; gap: 4px; width: 100%;
+  padding: 6px 8px; font: inherit; font-weight: 600; color: inherit;
+  text-align: left; background: none; border: none; cursor: pointer; }
+.data-table th.numeric .data-table-sort { justify-content: flex-end; }
+.data-table-sort:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: -2px; }
+.data-table-arrow { font-size: 10px; color: var(--color-text-muted); }
+.data-table tr.stale { opacity: 0.6; }
+.data-table-stale-label { margin-left: 6px; font-size: 12px; font-style: italic;
+  color: var(--color-text-muted); white-space: nowrap; }
+/* the open cell: a bordered field that covers the cell's padding, so the
+ * text does not move when the editor opens. Always focused while it
+ * exists, so the border is its focus signal and it takes no ring */
+.cell-editor { display: block; box-sizing: border-box; width: calc(100% + 10px);
+  margin: -3px -5px; padding: 2px 4px; font: inherit; line-height: inherit;
+  color: var(--color-text); background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-input); border-radius: var(--radius-field);
+  resize: none; overflow: hidden; outline: none; }
+@supports (field-sizing: content) {
+  .cell-editor { field-sizing: content; }
+}
+/* portalled and fixed: an absolute popup would be clipped by the table's
+ * scroll box. Its list is the outline's .ac-popup, unframed in here */
+.cell-editor-popup { position: fixed; z-index: var(--z-editor-popup);
+  min-width: 200px; max-width: min(420px, calc(100vw - 24px));
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15);
+  overflow: hidden; }
+.cell-editor-popup .ac-popup { position: static; min-width: 0; border: none;
+  border-radius: 0; box-shadow: none; }
+.cell-editor-popup .ac-row { display: flex; justify-content: space-between; gap: 12px; }
+.cell-editor-hint { padding: 6px 10px; font-size: 13px;
+  color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border); }
+.cell-editor-hint:last-child { border-bottom: none; }
+.cell-editor-count { font-size: 12px; color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums; }
+.table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 4px 0; font-size: 14px; }
+.table-filter { flex: 1 1 200px; min-width: 0; max-width: 360px; }
+.table-count, .table-saved, .table-refusal { color: var(--color-text-secondary);
+  white-space: nowrap; }
+.table-edit-text { margin-left: auto; }
+
 /* == Right sidebar == */
 .sidebar { width: 33.333%; flex-shrink: 0; border-left: 1px solid var(--color-border);
   background: var(--color-bg-sidebar); padding: 16px; overflow-y: auto; height: 100vh;

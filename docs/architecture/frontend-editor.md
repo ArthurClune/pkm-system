@@ -466,12 +466,24 @@ the view or resets it, so an edited row neither moves nor vanishes. A
 refetch that no longer returns a held row keeps showing its last record,
 stale (`holdRecords`). Otherwise an edit that took a row out of the query
 would drop it, and commit any draft open in it, on the next resync.
-A frozen view whose columns are the data's defaults keeps the ones it
-showed when the first refetch of the freeze landed (`holdColumns`), so a
-column whose last record left stays too. Columns the macro or the reader
-chose are shown as they are. The hold sits in `QueryResults` beside
-`holdRecords`, not in `stepView`, because only the block knows which
-columns are defaults.
+A query block also holds what the first edit saw (`stepQueryView`): a view
+or column list the macro leaves to the data's defaults stays as it was
+then (`showQuery`). A refetch can move those defaults: records that no
+longer hold a key drop its column, and records with no `::` line make
+blocks the default. Either would take a column or the whole table, with
+any draft open there, from the reader. While held, a column the current key
+stats no longer name finds its key in the first edit's, so a held row's
+cell reads and writes its own line. What the macro sets shows as it is. A
+column change from the menu of a held table starts from the columns on
+screen, so held columns the reader keeps become their own.
+
+The snapshot is taken in the step that freezes the rows, from the last
+committed render (`shownNow` in `QueryResults`), not from a load or from
+the closure of the cell write. DataTable's unmount commit runs the
+`onWrite` of the render before the change that unmounted it, which would
+freeze what is gone. It sits in `QueryResults`' state beside `stepView`,
+not in it: held in `live`, the columns would make the view dirty, and
+Save would pin them as `columns:`.
 
 Save writes only the fields that differ from the data's defaults
 (`optionsFromView`). A block with no `view:` or `columns:` keeps following

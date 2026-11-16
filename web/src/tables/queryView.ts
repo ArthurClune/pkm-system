@@ -42,12 +42,16 @@ export function queryDefaults(p: QueryRecordsPayload): ViewDefaults {
 }
 
 /** A stored name finds its key by the label the server reports for it, or
- * as a key itself; a name matching neither is a column no record holds. */
+ * as a key itself, in `keys` and then in `fallback`; a name matching none
+ * is a column no record holds. */
 export function queryColumns(labels: readonly string[],
-                             keys: readonly KeyStat[]): QueryColumn[] {
+                             keys: readonly KeyStat[],
+                             fallback: readonly KeyStat[] = []): QueryColumn[] {
   const byName = new Map<string, string>();
-  for (const k of keys) if (!byName.has(k.label)) byName.set(k.label, k.key);
-  for (const k of keys) if (!byName.has(k.key)) byName.set(k.key, k.key);
+  for (const stats of [keys, fallback]) {
+    for (const k of stats) if (!byName.has(k.label)) byName.set(k.label, k.key);
+    for (const k of stats) if (!byName.has(k.key)) byName.set(k.key, k.key);
+  }
   const seen = new Set<string>();
   const out: QueryColumn[] = [];
   for (const label of labels) {
@@ -101,42 +105,6 @@ export function holdRecords(
     if (!returned.has(key) && r !== undefined) out.set(key, r);
   }
   return out;
-}
-
-/** The default columns a frozen view showed when the first refetch of its
- * freeze landed, with the key stats that name their keys. `frozen` is that
- * freeze, by identity: a later one holds afresh. */
-export interface HeldColumns {
-  frozen: readonly string[];
-  labels: readonly string[];
-  keys: readonly KeyStat[];
-}
-
-/** What a refetch landing under `frozen` holds: this freeze's hold if
- * `prev`, the load before it, has one, else `prev`'s defaults and keys. */
-export function holdColumns(
-  prev: { defaults: ViewDefaults; keys: readonly KeyStat[];
-          held: HeldColumns | null } | null,
-  frozen: readonly string[] | null,
-): HeldColumns | null {
-  if (frozen === null || prev === null) return null;
-  if (prev.held?.frozen === frozen) return prev.held;
-  return { frozen, labels: prev.defaults.columns, keys: prev.keys };
-}
-
-/** The columns a query view shows. While `held` is this freeze's, columns
- * that follow the defaults (`defaulted`) are the held ones, so a refetch
- * whose records no longer hold a key does not take its column, and a draft
- * open in it, from under the reader; and a column the current stats no
- * longer name finds its key in the held ones, as a held row's cells need.
- * Columns the macro or the reader chose are shown as they are. */
-export function shownColumns(
-  live: readonly string[], keys: readonly KeyStat[],
-  held: HeldColumns | null, frozen: readonly string[] | null,
-  defaulted: boolean,
-): QueryColumn[] {
-  if (held === null || held.frozen !== frozen) return queryColumns(live, keys);
-  return queryColumns(defaulted ? held.labels : live, [...keys, ...held.keys]);
 }
 
 const sameOptions = (a: MacroOptions, b: MacroOptions): boolean =>

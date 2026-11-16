@@ -775,8 +775,9 @@ describe("cell writes", () => {
     within(th).getAllByRole("button")[0]!.textContent);
 
   /** Renders `text` over Alpha and Beta, then writes Alpha's status, which
-   * holds the rows in place; `resync` answers a reconnect with Beta alone,
-   * whose records hold neither Reading Status nor Published. */
+   * holds the rows in place; `resync` answers a reconnect with `answer`, by
+   * default Beta alone, whose records hold neither Reading Status nor
+   * Published. */
   async function holdBooks(text: string) {
     stubBooks({ records: [PUB_ALPHA, BETA_BOOK], keys: PUB_KEYS, total: 2,
                 groups: null });
@@ -784,10 +785,13 @@ describe("cell writes", () => {
     const { setSync } = renderBlock(text, { sync });
     await screen.findByRole("table");
     await write("Book/Alpha", "Reading Status", "Unread");
-    const resync = async () => {
-      stubBooks({ records: [BETA_BOOK], total: 1, groups: null,
-                  keys: [stat("Author", 1), stat("Publication", 1)] });
-      const later = makeSync("connected", { resyncGeneration: 1 });
+    let generation = 0;
+    const resync = async (answer: QueryRecordsPayload = {
+      records: [BETA_BOOK], total: 1, groups: null,
+      keys: [stat("Author", 1), stat("Publication", 1)] }) => {
+      stubBooks(answer);
+      generation += 1;
+      const later = makeSync("connected", { resyncGeneration: generation });
       later.enqueue = sync.enqueue;
       setSync(later);
       await screen.findByText("1 of 1 results");
@@ -808,6 +812,47 @@ describe("cell writes", () => {
     await act(async () => { await Promise.resolve(); });
     expect(sync.sent[1]).toEqual([expect.objectContaining({
       op: "update_text", uid: "apub01", text: "Published:: 2021" })]);
+  });
+
+  /** Beta alone with no `::` lines, so the default view is blocks. */
+  const BARE_BETA: QueryRecordsPayload = {
+    records: [{ ...BETA_BOOK, cells: {} }], keys: [], total: 1,
+    groups: [BOOK_GROUPS[1]!] };
+
+  it("keeps the table, its rows and an open draft when a refetch makes blocks the default",
+     async () => {
+    const { sync, resync } = await holdBooks(`{{query: ${BOOK}}}`);
+    fireEvent.click(cellOf("Book/Beta", "Author"));
+    fireEvent.change(editor(), { target: { value: "Yolanda Q" } });
+    await resync(BARE_BETA);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(rowTitles()).toEqual(["Book/Alphano longer matches", "Book/Beta"]);
+    expect(editor().value).toBe("Yolanda Q");
+    expect(sync.sent).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Table" }))
+      .toHaveAttribute("aria-pressed", "true");
+    fireEvent.change(filterBox(), { target: { value: "book" } });
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(document.querySelector(".query-item")).not.toBeNull();
+  });
+
+  it("keeps the first edit's columns through later refetches", async () => {
+    const { resync } = await holdBooks(`{{query: ${BOOK}}}`);
+    await resync();
+    await resync({ records: [BETA_BOOK], total: 1, groups: null,
+                   keys: [stat("Author", 1)] });
+    expect(headers()).toEqual(
+      ["Result", "Author", "Reading Status", "Published", "Publication"]);
+  });
+
+  it("makes the held columns the reader's own when they change one", async () => {
+    const { resync } = await holdBooks(`{{query: ${BOOK}}}`);
+    await resync();
+    fireEvent.click(screen.getByRole("button", { name: "Publication column menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide column" }));
+    expect(headers()).toEqual(
+      ["Result", "Author", "Reading Status", "Published"]);
+    expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
   });
 
   it("lets the held default columns go when the view changes", async () => {

@@ -440,6 +440,59 @@ def test_rebaseline_plan_carries_or_measures_what_the_base_cannot_run():
     assert (plan.carried, plan.from_branch) == ((), ("q/kept",))
 
 
+def _assemble(base_docs, plan, committed, branch_samples, runs=2):
+    head = {"commit": "head", "env": "e", "scenarios": {"a/1": {"n": 9}}}
+    return run_core.assemble_rebaseline_docs(runs, base_docs, head, branch_samples, plan, committed)
+
+
+def test_assemble_rebaseline_docs_with_nothing_servable_at_base_is_head_metadata_and_branch_scenarios():
+    plan = run_core.RebaselinePlan((), (), ("q/new",))
+    samples = [{"scenarios": {"q/new": {"n": 1}}}, {"scenarios": {"q/new": {"n": 2}}}]
+    docs, carried = _assemble([], plan, None, samples)
+    assert docs == [{"commit": "head", "env": "e", "scenarios": {"q/new": {"n": 1}}},
+                    {"commit": "head", "env": "e", "scenarios": {"q/new": {"n": 2}}}]
+    assert carried == {}
+
+
+def test_assemble_rebaseline_docs_without_branch_only_scenarios_keeps_the_base_runs():
+    plan = run_core.RebaselinePlan(("a/1",), (), ())
+    base = [_doc({"a/1": {"n": 1}}), _doc({"a/1": {"n": 2}})]
+    docs, carried = _assemble(base, plan, None, [{"scenarios": {}}])
+    assert docs == base
+    assert carried == {}
+
+
+def test_assemble_rebaseline_docs_reuses_the_last_branch_sample_when_runs_outnumber_them():
+    plan = run_core.RebaselinePlan(("a/1",), (), ("q/new",))
+    base = [_doc({"a/1": {"n": 1}}), _doc({"a/1": {"n": 2}}), _doc({"a/1": {"n": 3}})]
+    samples = [{"scenarios": {"q/new": {"n": 7}}}, {"scenarios": {"q/new": {"n": 8}}}]
+    docs, _ = _assemble(base, plan, None, samples, runs=3)
+    assert [d["scenarios"]["q/new"] for d in docs] == [{"n": 7}, {"n": 8}, {"n": 8}]
+    assert [d["scenarios"]["a/1"]["n"]["value"] for d in docs] == [1, 2, 3]
+
+
+def test_assemble_rebaseline_docs_carries_only_committed_entries_of_the_plan():
+    plan = run_core.RebaselinePlan((), ("q/kept",), ())
+    docs, carried = _assemble([], plan, {"q/kept": {"n": 4}, "q/other": {"n": 5}},
+                              [{"scenarios": {}}])
+    assert carried == {"q/kept": {"n": 4}}
+    assert _assemble([], plan, None, [{"scenarios": {}}])[1] == {}
+
+
+def test_assemble_rebaseline_docs_does_not_mutate_its_inputs():
+    plan = run_core.RebaselinePlan(("a/1",), (), ("q/new",))
+    base = [_doc({"a/1": {"n": 1}}), _doc({"a/1": {"n": 2}})]
+    samples = [{"scenarios": {"q/new": {"n": 7}}}]
+    head = {"commit": "head", "env": "e", "scenarios": {"a/1": {"n": 9}}}
+    before = json.dumps([base, samples, head], sort_keys=True)
+    run_core.assemble_rebaseline_docs(2, base, head, samples, plan, None)
+    assert json.dumps([base, samples, head], sort_keys=True) == before
+    unbased = run_core.RebaselinePlan((), (), ("q/new",))
+    docs, _ = run_core.assemble_rebaseline_docs(2, [], head, samples, unbased, None)
+    assert json.dumps([base, samples, head], sort_keys=True) == before
+    assert docs[0]["scenarios"] is not docs[1]["scenarios"]
+
+
 GROUPS_TS = 'export const LETTERS = "H,J,K,S";\nexport const CONTEXT_GROUPS = ["HW", "JKS"];\n'
 
 

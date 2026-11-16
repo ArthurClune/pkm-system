@@ -215,8 +215,10 @@ function PdfOverlay({ href, label, page, onClose, triggerRef, children }: {
  * Renders one document: its state is not reset when `href` changes, so a
  * caller must key it by href (PdfEmbed does).
  */
-export function PdfViewer({ href, label, onClose }:
-    { href: string; label: string; onClose?: () => void }) {
+export function PdfViewer({ href, label, onClose, triggerRef }: {
+  href: string; label: string; onClose?: () => void;
+  triggerRef?: RefObject<HTMLElement | null>;
+}) {
   const [doc, setDoc] = useState<DocState | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -247,6 +249,7 @@ export function PdfViewer({ href, label, onClose }:
         label={label}
         page={doc && { current: currentPage, total: doc.numPages }}
         onClose={onClose}
+        triggerRef={triggerRef}
       >
         {failure !== null ? (
           <PdfFallbackLink href={href} label={label} note={failure} />

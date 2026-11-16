@@ -57,7 +57,12 @@ export function CellMediaLabel({ media }: { media: CellMedia }) {
         {text}
       </button>
       {open && media.kind === "pdf" && (
-        <PdfEmbed href={media.href} label={media.label} onClose={close} />
+        <PdfEmbed href={media.href} label={media.label} onClose={close}
+                  triggerRef={buttonRef}
+                  onError={() => {
+                    setOpen(false);
+                    setBroken(true);
+                  }} />
       )}
       {open && media.kind === "image" && (
         <ImageOverlay

@@ -434,6 +434,27 @@ it("overlay mode: Close and Escape call onClose instead of collapsing", async ()
   expect(onClose).toHaveBeenCalledTimes(2);
 });
 
+it("overlay mode: closing returns focus to triggerRef, focused or not", async () => {
+  const { useRef, useState } = await import("react");
+  function Host() {
+    const ref = useRef<HTMLButtonElement>(null);
+    const [open, setOpen] = useState(true);
+    return (
+      <>
+        <button type="button" ref={ref}>Trigger</button>
+        {open && <PdfViewer href={href} label="Notes" triggerRef={ref}
+                            onClose={() => setOpen(false)} />}
+      </>
+    );
+  }
+  render(<Host />);
+  await act(async () => {});
+  expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.querySelector(".pdf-overlay")).toBeNull();
+  expect(screen.getByRole("button", { name: "Trigger" })).toHaveFocus();
+});
+
 it("overlay mode: a failed load shows the fallback link inside the overlay, Close still works", async () => {
   failLoad = true;
   const onClose = vi.fn();

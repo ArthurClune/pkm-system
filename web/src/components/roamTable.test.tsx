@@ -475,3 +475,28 @@ describe("RoamTable media cells", () => {
     expect(tableEditor()).toBeNull();
   });
 });
+
+describe("RoamTable media cells before the tables chunk loads", () => {
+  it("shows labels, fetches nothing and anchors the cell", async () => {
+    vi.resetModules();
+    const fresh = await import("./roamTable");
+    const ctx = await import("../contexts");
+    const t = roamTable(mediaTable())!;
+    const { handlers } = spyHandlers();
+    const { container } = render(
+      <MemoryRouter>
+        <ctx.OutlinePageContext.Provider value={PAGE}>
+          <fresh.RoamTable node={mediaTable()} rows={t.rows}
+                           options={t.options} handlers={handlers} editable />
+        </ctx.OutlinePageContext.Provider>
+      </MemoryRouter>);
+    expect(screen.getByRole("table")).toHaveClass("roam-table");
+    expect(container.querySelector("img")).toBeNull();
+    expect(imageLabel().closest("td"))
+      .toHaveAttribute("data-cell-uid", "tuid-ax");
+    expect(screen.getByRole("button", { name: "↗ Mermaid diagram" }))
+      .toBeInTheDocument();
+    await loaded();
+    vi.resetModules();
+  });
+});

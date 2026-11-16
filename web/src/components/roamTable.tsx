@@ -3,7 +3,11 @@
 // filter and cell editing (PlainTable.tsx) load on the first table rendered
 // and replace it, so a page without a table never pays for them in the
 // entry chunk, and nothing moves while they load. Until then a click on the
-// table reaches the block row and opens its text, as before.
+// table reaches the block row and opens its text, as before. Its body cells
+// show media as labels and carry data-cell-uid, as PlainTable's do, so the
+// swap neither fetches media nor misses a jump to a cell.
+import { useContext } from "react";
+import { CellMediaContext, OutlinePageContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 import { lazyLoader, useLazy } from "./lazyComponent";
@@ -22,6 +26,7 @@ export function RoamTable(props: PlainTableProps) {
 }
 
 function StaticTable({ rows }: { rows: RoamTableRows }) {
+  const page = useContext(OutlinePageContext);
   const [header, ...body] = rows;
   const content = (text: string) =>
     <InlineSegments segments={tokenizeBlock(text)} />;
@@ -37,9 +42,14 @@ function StaticTable({ rows }: { rows: RoamTableRows }) {
         <tbody>{body.map((row, rowIndex) => (
           <tr key={row.find((cell) => cell)?.uid ?? `empty-row-${rowIndex}`}>
             {row.map((cell, cellIndex) => (
-              <td key={cell?.uid ?? `empty-${rowIndex}-${cellIndex}`}>
+              <td key={cell?.uid ?? `empty-${rowIndex}-${cellIndex}`}
+                  data-cell-uid={cell?.uid}>
                 <div className="table-cell">
-                  {cell ? content(cell.text) : null}
+                  {cell ? (
+                    <CellMediaContext.Provider value={{ page, uid: cell.uid }}>
+                      {content(cell.text)}
+                    </CellMediaContext.Provider>
+                  ) : null}
                 </div>
               </td>
             ))}

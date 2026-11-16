@@ -102,7 +102,12 @@ value's other segments render as they do anywhere else.
 | `line` | a bare Bluesky post URL, a code block, a mermaid diagram, a query | the line that holds it: `pagePath(page)#uid` | `openInSidebar(page, uid)` |
 
 The label is a button that stops its click: the `<td>` opens the cell editor
-on any click that reaches it. A plain table's line is the cell's own block,
+on any click that reaches it. `RoamTable`'s `StaticTable`, shown until the
+tables chunk loads, provides the same context and `data-cell-uid`, so the
+swap to `PlainTable` neither fetches media nor misses a jump. In overlay mode
+`PdfEmbed` renders nothing in place while the viewer chunk loads, and a
+failed chunk calls `onError`, so the label reads "(unavailable)" instead of
+the cell growing a link. A plain table's line is the cell's own block,
 on the page `OutlinePageContext` names (`EditablePage` provides it). With no
 page the line label is plain text. The jump finds a plain-table cell by the
 `data-cell-uid` that `DataTable`'s `cellAnchor` writes on the `<td>`, never

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, expect, it, vi } from "vitest";
@@ -10,12 +10,13 @@ vi.mock("./PdfViewer", async () => {
   const { createPortal } = await import("react-dom");
   const { useModal } = await import("../useModal");
   return {
-    PdfViewer: function MockViewer({ label, onClose }: {
+    PdfViewer: function MockViewer({ label, onClose, triggerRef }: {
       label: string; onClose: () => void;
+      triggerRef?: React.RefObject<HTMLElement | null>;
     }) {
       const surfaceRef = useRef<HTMLDivElement>(null);
       const closeRef = useRef<HTMLButtonElement>(null);
-      useModal({ surfaceRef, initialFocusRef: closeRef, onClose });
+      useModal({ surfaceRef, initialFocusRef: closeRef, onClose, triggerRef });
       return createPortal(
         <div role="dialog" aria-label={label} ref={surfaceRef}>
           <button type="button" ref={closeRef} onClick={onClose}>Close</button>
@@ -94,7 +95,7 @@ it("pdf_label_opens_the_overlay_and_escape_returns_focus", async () => {
   const label = screen.getByRole("button", {
     name: "Open PDF full screen: paper.pdf",
   });
-  label.focus();
+  // No focus() first: a click in WebKit does not focus a button.
   fireEvent.click(label);
   expect(await screen.findByRole("dialog")).toBeInTheDocument();
   fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
@@ -166,4 +167,38 @@ it("outside_a_cell_nothing_changes", () => {
   expect(container.querySelector(".pdf-embed, .pdf-fallback, a[href$='.pdf']"))
     .not.toBeNull();
   expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+});
+
+it("pdf_label_adds_nothing_to_the_cell_while_the_viewer_loads", () => {
+  const { container } = renderCell(`[paper.pdf](/assets/${SHA}/paper.pdf)`);
+  fireEvent.click(screen.getByRole("button", {
+    name: "Open PDF full screen: paper.pdf",
+  }));
+  expect(container.querySelector(".pdf-embed, a")).toBeNull();
+});
+
+it("pdf_viewer_that_fails_to_load_closes_and_reads_unavailable", async () => {
+  vi.resetModules();
+  vi.doMock("./PdfViewer", () => {
+    throw new Error("chunk load failed");
+  });
+  const fresh = await import("./InlineSegments");
+  const ctx = await import("../contexts");
+  const { container } = render(
+    <MemoryRouter>
+      <ctx.CellMediaContext.Provider value={{ page: PAGE, uid: UID }}>
+        <fresh.InlineSegments
+          segments={tokenizeBlock(`[paper.pdf](/assets/${SHA}/paper.pdf)`)} />
+      </ctx.CellMediaContext.Provider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", {
+    name: "Open PDF full screen: paper.pdf",
+  }));
+  await waitFor(() => expect(screen.getByRole("button", {
+    name: "Open PDF full screen: paper.pdf",
+  })).toHaveTextContent("📄 paper.pdf (unavailable)"));
+  expect(container.querySelector(".pdf-embed")).toBeNull();
+  vi.doUnmock("./PdfViewer");
+  vi.resetModules();
 });

@@ -49,6 +49,29 @@ it("keeps the link fallback with a note when the viewer chunk fails", async () =
   vi.resetModules();
 });
 
+it("overlay mode renders nothing inline while the viewer loads", () => {
+  const { container } = render(
+    <PdfEmbed href={href} label="Notes" onClose={() => {}} />);
+  expect(screen.queryByRole("link")).toBeNull();
+  expect(container.querySelector(".pdf-embed")).toBeNull();
+});
+
+it("overlay mode: a failed viewer chunk calls onError and renders nothing", async () => {
+  vi.resetModules();
+  vi.doMock("./PdfViewer", () => {
+    throw new Error("chunk load failed");
+  });
+  const { PdfEmbed: FreshPdfEmbed } = await import("./PdfEmbed");
+  const onError = vi.fn();
+  const { container } = render(
+    <FreshPdfEmbed href={href} label="Notes" onClose={() => {}}
+                   onError={onError} />);
+  await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+  expect(container).toBeEmptyDOMElement();
+  vi.doUnmock("./PdfViewer");
+  vi.resetModules();
+});
+
 it("an href change mounts a new viewer", async () => {
   const other = `/assets/${"cd".repeat(32)}/other.pdf`;
   const view = render(<PdfEmbed href={href} label="Notes" />);

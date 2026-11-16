@@ -107,3 +107,61 @@ it("a batch answered before a link was delivered neither brings the block " +
   expect(await screen.findByText("Acme mention 3")).toBeInTheDocument();
   expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("offset=1");
 });
+
+it("a failed local persist is not a failed link: only delivery decides",
+   async () => {
+  vi.stubGlobal("fetch", vi.fn(() =>
+    Promise.resolve(jsonResponse(listing([1, 2], 2)))));
+  const ticket = controlledSync();
+  renderSection(ticket.sync);
+  const [first] = await screen.findAllByRole("button", { name: "Link" });
+
+  fireEvent.click(first!);
+  await act(async () => {
+    ticket.settled.resolve(
+      { status: "failed", error: new Error("SQLITE_CANTOPEN") });
+    await ticket.settled.promise;
+  });
+  // The queue still holds the write: the block is hidden, with no error and
+  // no Link left to queue a second conversion.
+  expect(screen.queryByText(/SQLITE_CANTOPEN/)).toBeNull();
+  expect(screen.queryByText("Acme mention 1")).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Link" })).toHaveLength(1);
+
+  await act(async () => {
+    ticket.delivered.resolve({ status: "delivered" });
+    await ticket.delivered.promise;
+  });
+  expect(screen.queryByText(/SQLITE_CANTOPEN/)).toBeNull();
+  expect(screen.queryByText("Acme mention 1")).toBeNull();
+  expect(screen.getByText("Acme mention 2")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /unlinked references \(1\)/i }))
+    .toBeInTheDocument();
+});
+
+it("a link the queue drops shows its error and lists the block again",
+   async () => {
+  vi.stubGlobal("fetch", vi.fn(() =>
+    Promise.resolve(jsonResponse(listing([1, 2], 2)))));
+  const ticket = controlledSync();
+  renderSection(ticket.sync);
+  const [first] = await screen.findAllByRole("button", { name: "Link" });
+
+  fireEvent.click(first!);
+  const refused = new Error("replica rejected the op");
+  await act(async () => {
+    ticket.settled.resolve({ status: "failed", error: refused });
+    await ticket.settled.promise;
+  });
+  await act(async () => {
+    ticket.delivered.resolve({ status: "failed", error: refused });
+    await ticket.delivered.promise;
+  });
+
+  expect(screen.getByText("Error: replica rejected the op"))
+    .toBeInTheDocument();
+  expect(screen.getByText("Acme mention 1")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Link" })[0]).toBeEnabled();
+  expect(screen.getByRole("button", { name: /unlinked references \(2\)/i }))
+    .toBeInTheDocument();
+});

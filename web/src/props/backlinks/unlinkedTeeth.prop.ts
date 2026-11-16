@@ -26,14 +26,14 @@ const MUTANTS: Record<string, Mutant> = {
         ? new Map(statuses).set(uid, status)
         : REAL_OPS.withStatus(statuses, uid, status) },
   },
-  "a click can settle without a pending link": {
-    catches: ["lifecycle", "same-map", "listed", "settled-count", "next-offset"],
+  "a click can queue without a pending link": {
+    catches: ["lifecycle", "same-map", "listed", "queued-count", "next-offset"],
     ops: { ...REAL_OPS, withStatus: (statuses, uid, status) =>
-      status === "settled" && statuses.get(uid) === undefined
+      status === "queued" && statuses.get(uid) === undefined
         ? new Map(statuses).set(uid, status)
         : REAL_OPS.withStatus(statuses, uid, status) },
   },
-  "a pending link skips settling": {
+  "a pending link skips queueing": {
     catches: ["lifecycle", "same-map", "delivered-hidden", "listed"],
     ops: { ...REAL_OPS, withStatus: (statuses, uid, status) =>
       status === "delivered" && statuses.get(uid) === "pending"
@@ -57,11 +57,11 @@ const MUTANTS: Record<string, Mutant> = {
       return next;
     } },
   },
-  "a settled block shows in the list": {
+  "a queued block shows in the list": {
     catches: ["listed"],
     ops: { ...REAL_OPS, isListed: (status) => status !== "delivered" },
   },
-  "the next offset ignores settled blocks": {
+  "the next offset ignores queued blocks": {
     catches: ["next-offset"],
     ops: { ...REAL_OPS, nextOffset: (loaded) => loaded },
   },

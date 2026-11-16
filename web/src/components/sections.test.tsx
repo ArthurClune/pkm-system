@@ -691,40 +691,6 @@ it("hides a durably persisted item and notifies only after delivery", async () =
   await vi.waitFor(() => expect(onLinked).toHaveBeenCalledTimes(1));
 });
 
-it("retains the item when local persistence fails", async () => {
-  stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
-  const sync = makeSync();
-  const settled = deferred<WriteOutcome>();
-  const delivered = deferred<DeliveryOutcome>();
-  sync.enqueue = vi.fn<Sync["enqueue"]>((ops, scope) => {
-    sync.sent.push(ops);
-    const ticket = {
-      id: ticketIdOf("controlled-write-1"),
-      scope: scope ?? [],
-      settled: settled.promise,
-      delivered: delivered.promise,
-    } satisfies WriteTicket;
-    sync.tickets.push(ticket);
-    return ticket;
-  });
-  render(
-    <SyncContext.Provider value={sync}>
-      <MemoryRouter>
-        <UnlinkedSection title={canonicalTitleOf("ACME")} />
-      </MemoryRouter>
-    </SyncContext.Provider>,
-  );
-  fireEvent.click(screen.getByText(/unlinked references/i));
-  fireEvent.click((await screen.findAllByRole("button", { name: "Link" }))[0]);
-  await act(async () => {
-    settled.resolve({ status: "failed", error: new Error("disk full") });
-    await settled.promise;
-  });
-  expect(screen.getByText("Acme created it")).toBeInTheDocument();
-  expect(await screen.findByText("Error: disk full")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: "Link" })[0]).toBeEnabled();
-});
-
 it("restores the item and permits retry after delivery fails", async () => {
   stubFetch([["/api/unlinked?title=ACME", {
     groups: [{ page_id: pageIdOf(2), page_title: "Source", items: [

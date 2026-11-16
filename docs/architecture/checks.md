@@ -142,7 +142,9 @@ Rules a change to the gate must keep:
 - A scenario absent from the merge base's committed baseline is taken as
   added on the branch, and `base_servable` keeps it out of the merge-base run
   (the frontend drops its whole context group, since `check.ts` runs the group
-  together; `--rebaseline` measures those scenarios on the branch instead).
+  together; `--rebaseline` keeps their committed entries unchanged, because a
+  branch measurement there would record a branch regression, and measures on
+  the branch only a scenario with no usable entry).
   A survivor with no merge-base run can only read `regression`, so a wrong
   guess misreads a stale baseline as a regression and never passes one. A
   timing in that position is judged against the branch baseline, without the
@@ -161,7 +163,8 @@ Rules a change to the gate must keep:
   `api_bytes` by a byte or two. It also optimizes both FTS indexes, so a
   write scenario's `trigger_statements` do not depend on the fixture's FTS
   segment phase (the first FTS write otherwise pays a crisis merge whose
-  presence follows the fixture's size). Metrics that stay noisy under these
+  presence follows the fixture's size). Production's index sits at an
+  arbitrary phase, so the fixture's write counts are not its average cost. Metrics that stay noisy under these
   controls are classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)

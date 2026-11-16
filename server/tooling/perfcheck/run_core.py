@@ -232,3 +232,27 @@ def base_servable(names: Iterable[str], base_baseline: Mapping | None,
         return {u for u in {*universe, name} if letter(u) in letters}
 
     return [n for n in names if needed(n) <= recorded.keys()]
+
+
+@dataclass(frozen=True)
+class RebaselinePlan:
+    at_base: tuple[str, ...]  # measured at the merge base
+    carried: tuple[str, ...]  # the branch's committed entry stands unchanged
+    from_branch: tuple[str, ...]  # measured on the branch: nothing to carry
+
+
+def rebaseline_plan(head_names: Iterable[str], committed: Mapping | None,
+                    base_baseline: Mapping, groups: Collection[str] = ()) -> RebaselinePlan:
+    """How `--rebaseline` records each scenario the harness measures. One the
+    merge base cannot run (`base_servable`) keeps the branch's committed
+    entry, because a branch measurement there would turn a branch regression
+    into the baseline; with no usable committed entry (`committed` is None
+    when the old values cannot stand, e.g. the fixture changed) it is
+    measured on the branch."""
+    head = sorted(set(head_names))
+    universe = {*head, *(committed or {})}
+    at_base = base_servable(head, base_baseline, universe, groups)
+    rest = [n for n in head if n not in at_base]
+    carried = [n for n in rest if committed is not None and n in committed]
+    return RebaselinePlan(tuple(at_base), tuple(carried),
+                          tuple(n for n in rest if n not in carried))

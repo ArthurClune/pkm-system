@@ -1,6 +1,7 @@
 import http.server
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -288,7 +289,11 @@ def test_parse_context_groups_reads_the_typescript_constant():
     src = 'export const LETTERS = "H,W";\nexport const CONTEXT_GROUPS = ["HW", "R"];\n'
     assert run_core.parse_context_groups(src) == ["HW", "R"]
     real = Path(__file__).resolve().parents[2] / "web" / "tooling" / "perf" / "contextGroups.ts"
-    assert run_core.parse_context_groups(real.read_text())
+    groups = run_core.parse_context_groups(real.read_text())
+    found = re.search(r'LETTERS = "([^"]+)"', real.read_text())
+    assert found
+    letters = found.group(1).split(",")
+    assert sorted("".join(groups)) == sorted(letters)
 
 
 def _branch_new_check(check, tmp_path, head_docs, mb_docs=()):
@@ -334,25 +339,134 @@ def test_a_malformed_base_baseline_reads_as_unknown(tmp_path):
     assert run._base_baseline(tmp_path, "backend") is None
 
 
-def test_rebaseline_measures_a_branch_new_scenario_on_the_branch(tmp_path, monkeypatch):
-    (tmp_path / "perf").mkdir()
+def _rebaseline_setup(tmp_path, monkeypatch, committed, head_docs, mb_docs, side="backend"):
+    (tmp_path / "perf").mkdir(exist_ok=True)
     (tmp_path / "mb" / "perf").mkdir(parents=True)
-    (tmp_path / "perf" / "baseline-backend.json").write_text(
-        json.dumps(_doc({"a/1": {"n": 1}, "q/new": {"n": 3}})))
-    (tmp_path / "mb" / "perf" / "baseline-backend.json").write_text(
-        json.dumps(_doc({"a/1": {"n": 1}})))
+    (tmp_path / "perf" / f"baseline-{side}.json").write_text(json.dumps(committed))
+    (tmp_path / "mb" / "perf" / f"baseline-{side}.json").write_text(
+        json.dumps(_doc({"a/1": {"n": 1}}) if side == "backend" else mb_baseline_frontend()))
     monkeypatch.setattr(run, "head_commit", lambda repo: "head")
     monkeypatch.setattr(run, "merge_base_worktree", lambda repo, side: (tmp_path / "mb", "base"))
-    runner = _FakeRunner([_doc({"q/new": {"n": 4}})] * 2, [_doc({"a/1": {"n": 2}})] * 2,
-                         tmp_path / "mb")
+    runner = _FakeRunner(head_docs, mb_docs, tmp_path / "mb")
     monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
     _load(monkeypatch, [0.5])
+    return runner
+
+
+def mb_baseline_frontend():
+    return _doc({"J/a": {"n": 1}, "S/old": {"n": 1}, "H/x": {"n": 1}})
+
+
+def _written(tmp_path, side="backend"):
+    return json.loads((tmp_path / "perf" / f"baseline-{side}.json").read_text())["scenarios"]
+
+
+def test_rebaseline_keeps_the_committed_entry_of_a_scenario_the_base_cannot_run(tmp_path, monkeypatch):
+    # the branch measures q/new worse (4) than its committed 3; recording that
+    # would turn a branch regression into the baseline
+    runner = _rebaseline_setup(
+        tmp_path, monkeypatch, _doc({"a/1": {"n": 1}, "q/new": {"n": 3}}),
+        [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}})], [_doc({"a/1": {"n": 2}})] * 2)
     assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    assert runner.head_only == [None]
     assert runner.mb_only == [["a/1"]] * 2
-    assert runner.head_only == [["q/new"]] * 2
-    written = json.loads((tmp_path / "perf" / "baseline-backend.json").read_text())
-    assert written["scenarios"]["a/1"]["n"]["value"] == 2
-    assert written["scenarios"]["q/new"]["n"]["value"] == 4
+    written = _written(tmp_path)
+    assert written["a/1"]["n"]["value"] == 2
+    assert written["q/new"]["n"]["value"] == 3
+
+
+def test_rebaseline_measures_on_the_branch_when_there_is_no_committed_entry(tmp_path, monkeypatch, capsys):
+    _rebaseline_setup(tmp_path, monkeypatch, _doc({"a/1": {"n": 1}}),
+                      [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}})], [_doc({"a/1": {"n": 2}})] * 2)
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    assert _written(tmp_path)["q/new"]["n"]["value"] == 4
+    assert "recorded from the branch" in capsys.readouterr().out
+
+
+def test_rebaseline_does_not_carry_entries_of_an_incomparable_baseline(tmp_path, monkeypatch):
+    committed = _doc({"a/1": {"n": 1}, "q/new": {"n": 3}})
+    committed["fixture_hash"] = "old"
+    _rebaseline_setup(tmp_path, monkeypatch, committed,
+                      [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}})], [_doc({"a/1": {"n": 2}})] * 2)
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    assert _written(tmp_path)["q/new"]["n"]["value"] == 4
+
+
+def test_rebaseline_with_every_scenario_branch_new_never_runs_the_merge_base(tmp_path, monkeypatch, capsys):
+    runner = _rebaseline_setup(tmp_path, monkeypatch, _doc({"q/new": {"n": 3}}),
+                               [_doc({"q/new": {"n": 4}})], [])
+    (tmp_path / "mb" / "perf" / "baseline-backend.json").write_text(json.dumps(_doc({"z/9": {"n": 1}})))
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    assert runner.mb_only == []
+    assert "at base" not in capsys.readouterr().out
+
+
+def test_rebaseline_plan_carries_or_measures_what_the_base_cannot_run():
+    base = _doc({"a/1": {"n": 1}})
+    plan = run_core.rebaseline_plan(["a/1", "q/kept", "q/fresh"], {"a/1": {}, "q/kept": {}}, base)
+    assert (plan.at_base, plan.carried, plan.from_branch) == (("a/1",), ("q/kept",), ("q/fresh",))
+    plan = run_core.rebaseline_plan(["a/1", "q/kept"], None, base)
+    assert (plan.carried, plan.from_branch) == ((), ("q/kept",))
+
+
+GROUPS_TS = 'export const LETTERS = "H,J,K,S";\nexport const CONTEXT_GROUPS = ["HW", "JKS"];\n'
+
+
+def _frontend_repo(tmp_path, committed):
+    (tmp_path / "web" / "tooling" / "perf").mkdir(parents=True)
+    (tmp_path / "web" / "tooling" / "perf" / "contextGroups.ts").write_text(GROUPS_TS)
+    (tmp_path / "perf").mkdir(exist_ok=True)
+    (tmp_path / "perf" / "baseline-frontend.json").write_text(json.dumps(committed))
+
+
+def test_frontend_check_skips_the_merge_base_for_a_group_with_a_scenario_it_lacks(tmp_path, monkeypatch, capsys):
+    # S/new was just added to check.ts: it is in the head run, not yet in the
+    # committed baseline, and the merge base would run it with its group
+    _frontend_repo(tmp_path, _doc({"J/a": {"n": 1}, "S/old": {"n": 1}}))
+    runner = _rebaseline_setup(
+        tmp_path, monkeypatch, _doc({"J/a": {"n": 1}, "S/old": {"n": 1}}),
+        [_doc({"J/a": {"n": 1}, "S/old": {"n": 2}, "S/new": {"n": 1}}),
+         _doc({"S/old": {"n": 2}})], [], side="frontend")
+    assert run.do_check(tmp_path, "frontend") == 1
+    assert runner.mb_only == []
+    assert "| S/old | n | 1 | 2 | regression |" in capsys.readouterr().out
+
+
+def test_frontend_rebaseline_keeps_a_whole_group_off_the_merge_base(tmp_path, monkeypatch):
+    committed = _doc({"J/a": {"n": 1}, "S/old": {"n": 1}, "H/x": {"n": 1}})
+    _frontend_repo(tmp_path, committed)
+    runner = _rebaseline_setup(
+        tmp_path, monkeypatch, committed,
+        [_doc({"J/a": {"n": 1}, "S/old": {"n": 1}, "S/new": {"n": 1}, "H/x": {"n": 1}})],
+        [_doc({"H/x": {"n": 5}})] * 2, side="frontend")
+    assert run.do_bootstrap(tmp_path, "frontend", 2, at_merge_base=True) == 0
+    assert runner.mb_only == [["H/x"]] * 2
+    written = _written(tmp_path, "frontend")
+    assert written["J/a"]["n"]["value"] == 1 and written["S/new"]["n"]["value"] == 1
+    assert written["H/x"]["n"]["value"] == 5
+
+
+def test_a_context_groups_file_of_another_shape_fails_with_exit_2(tmp_path, monkeypatch, capsys):
+    _frontend_repo(tmp_path, _doc({"J/a": {"n": 1}}))
+    (tmp_path / "web" / "tooling" / "perf" / "contextGroups.ts").write_text("export const X = 1;\n")
+    _rebaseline_setup(tmp_path, monkeypatch, _doc({"J/a": {"n": 1}}), [_doc({"J/a": {"n": 2}})] * 2,
+                      [], side="frontend")
+    monkeypatch.setattr("sys.argv", ["perf/check.sh", "frontend", "--rebaseline"])
+    monkeypatch.setattr(run, "repo_root", lambda: tmp_path)
+    assert run.main() == 2
+    err = capsys.readouterr().err
+    assert "perf: frontend failed" in err and "parse_context_groups" in err
+
+
+def test_a_conflicted_branch_baseline_fails_the_rebaseline_with_exit_2(tmp_path, monkeypatch, capsys):
+    runner = _rebaseline_setup(tmp_path, monkeypatch, _doc({"a/1": {"n": 1}}), [_doc({"a/1": {"n": 1}})], [])
+    (tmp_path / "perf" / "baseline-backend.json").write_text("<<<<<<< HEAD\n{}\n")
+    monkeypatch.setattr("sys.argv", ["perf/check.sh", "backend", "--rebaseline"])
+    monkeypatch.setattr(run, "repo_root", lambda: tmp_path)
+    assert run.main() == 2
+    err = capsys.readouterr().err
+    assert "perf: backend failed" in err and "git checkout main -- perf/baseline-backend.json" in err
+    assert runner.mb_only == []
 
 
 def test_check_stale_baseline(check, capsys):

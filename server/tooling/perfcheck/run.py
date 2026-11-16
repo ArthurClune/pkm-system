@@ -29,10 +29,10 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (base_servable, busy_reason, busy_report, exit_code, frontend_letters,
-                                incomparable_advice, is_test_runner, missing_import_advice, missing_pkm_import,
-                                next_steps, parse_context_groups, parse_ps, scenarios_of, sides_for,
-                                stale_entries, top_processes)
+from perfcheck.run_core import (RebaselinePlan, base_servable, busy_reason, busy_report, exit_code,
+                                frontend_letters, incomparable_advice, is_test_runner, missing_import_advice,
+                                missing_pkm_import, next_steps, parse_context_groups, parse_ps,
+                                rebaseline_plan, scenarios_of, sides_for, stale_entries, top_processes)
 from repo_git import GitError, changed_paths, git, repo_root
 
 FRONTEND_PORT = 8977
@@ -375,40 +375,58 @@ def _base_baseline(wt: Path, side: str) -> dict | None:
     return doc
 
 
+def _branch_baseline(repo: Path, side: str) -> dict | None:
+    """This branch's committed baseline; None when absent."""
+    path = _baseline_path(repo, side)
+    if not path.exists():
+        return None
+    try:
+        doc = json.loads(path.read_text())
+        doc["scenarios"].keys()
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        rel = path.relative_to(repo)
+        raise PerfRunError(f"{rel} is not a usable baseline ({e}), a merge conflict "
+                           f"perhaps; restore it with `git checkout main -- {rel}` and run again") from e
+    return doc
+
+
 def _groups(repo: Path, side: str) -> list[str]:
     """check.ts's context groups, which `--only` expands to; the backend has
     none."""
     if side != "frontend":
         return []
-    return parse_context_groups((repo / "web" / "tooling" / "perf" / "contextGroups.ts").read_text())
+    path = repo / "web" / "tooling" / "perf" / "contextGroups.ts"
+    try:
+        return parse_context_groups(path.read_text())
+    except (OSError, ValueError) as e:
+        raise PerfRunError(f"cannot read CONTEXT_GROUPS from {path.relative_to(repo)} ({e}); "
+                           "update parse_context_groups in perfcheck/run_core.py to match") from e
 
 
 def _write(path: Path, doc: dict) -> None:
     path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
-def _measure(runner: BackendRunner | FrontendRunner, repo: Path, wt: Path, commit: str,
-             side: str, at_merge_base: bool) -> dict:
-    """One recording run. At the merge base, scenarios `base_servable` drops
-    are measured on the branch instead and merged in, because the base's
-    server or SPA cannot run them."""
-    if not at_merge_base:
-        return runner.run(wt, None, commit)
+def _rebaseline_docs(runner: BackendRunner | FrontendRunner, repo: Path, wt: Path, commit: str,
+                     side: str, runs: int) -> tuple[list[dict], dict[str, dict], RebaselinePlan | None]:
+    """The merge-base recording runs, the committed entries to carry over
+    unchanged, and the plan. Scenarios the merge base cannot run are not
+    measured there. With no usable base baseline everything is."""
     base_baseline = _base_baseline(wt, side)
-    branch_path = _baseline_path(repo, side)
-    if base_baseline is None or not branch_path.exists():
-        return runner.run(wt, None, commit)
-    universe = json.loads(branch_path.read_text())["scenarios"].keys()
-    at_base = base_servable(sorted(universe), base_baseline, universe, _groups(repo, side))
-    on_branch = sorted(set(universe) - set(at_base))
-    if not on_branch:
-        return runner.run(wt, None, commit)
-    branch_doc = runner.run(repo, on_branch, head_commit(repo))
-    if not at_base:
-        return branch_doc
-    doc = runner.run(wt, at_base, commit)
-    doc["scenarios"].update(branch_doc["scenarios"])
-    return doc
+    if base_baseline is None:
+        return [runner.run(wt, None, commit) for _ in range(runs)], {}, None
+    branch_baseline = _branch_baseline(repo, side)
+    head_doc = runner.run(repo, None, head_commit(repo))  # the scenarios the harness measures
+    comparable = branch_baseline is not None and incomparable_reason(branch_baseline, head_doc) is None
+    committed = branch_baseline["scenarios"] if comparable and branch_baseline else None
+    plan = rebaseline_plan(head_doc["scenarios"], committed, base_baseline, _groups(repo, side))
+    docs = []
+    for _ in range(runs):
+        doc = (runner.run(wt, list(plan.at_base), commit) if plan.at_base
+               else {**head_doc, "scenarios": {}})
+        doc["scenarios"].update({n: head_doc["scenarios"][n] for n in plan.from_branch})
+        docs.append(doc)
+    return docs, {n: committed[n] for n in plan.carried} if committed else {}, plan
 
 
 def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
@@ -419,7 +437,12 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
     else:
         wait_until_quiet(side, repo)
     wt, commit = merge_base_worktree(repo, side) if at_merge_base else (repo, head_commit(repo))
-    docs = [_measure(runner, repo, wt, commit, side, at_merge_base) for _ in range(runs)]
+    carried: dict[str, dict] = {}
+    plan = None
+    if at_merge_base:
+        docs, carried, plan = _rebaseline_docs(runner, repo, wt, commit, side, runs)
+    else:
+        docs = [runner.run(wt, None, commit) for _ in range(runs)]
     if not allow_busy:
         ensure_still_quiet(side, repo)
     base, unstable = bootstrap(docs)
@@ -430,8 +453,16 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
         print("\nSee the spec's Determinism section: fix the source in the harness first; "
               "reclassify to band only if the variation is inherent.")
         return 1
+    base["scenarios"].update(carried)
     _write(_baseline_path(repo, side), base)
-    print(f"## {side}: baseline written from {runs} runs at {commit}")
+    shown = docs[0]["commit"] if plan and not plan.at_base else commit
+    print(f"## {side}: baseline written from {runs} runs at {shown}")
+    if plan and plan.carried:
+        print("kept from the branch baseline, which the merge base cannot run: "
+              + ", ".join(plan.carried))
+    if plan and plan.from_branch:
+        print("recorded from the branch, which the merge base cannot run and which "
+              "had no usable branch entry: " + ", ".join(plan.from_branch))
     return 0
 
 
@@ -466,7 +497,8 @@ def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
         if survivors:
             wt, mb_commit = merge_base_worktree(repo, side)
             served = base_servable(scenarios_of(survivors), _base_baseline(wt, side),
-                                   baseline["scenarios"].keys(), _groups(repo, side))
+                                   baseline["scenarios"].keys() | result["scenarios"].keys(),
+                                   _groups(repo, side))
             if served:
                 mb = runner.run(wt, served, mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)

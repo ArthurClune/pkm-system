@@ -1017,3 +1017,31 @@ describe("in-app find", () => {
       .toContain("background-color: var(--color-find-current);");
   });
 });
+
+// Table headers, the filter panel and query cards fill with
+// --color-bg-subtle. A hovered row painted that same colour swallowed them
+// whenever the mouse sat on a table or query block, which it does while one
+// is edited.
+describe("row hover beside tables and panels", () => {
+  const THEMES = [":root", ':root:not([data-theme="light"])',
+    ':root[data-theme="dark"]'];
+  const tokenValue = (selector: string, token: string) =>
+    ruleFor(selector).match(new RegExp(`${token}: (#[0-9a-fA-F]+);`))?.[1];
+
+  test("a hovered row takes its own token, distinct from the panel fill", () => {
+    expect(ruleFor(".block-row:hover"))
+      .toContain("background: var(--color-row-hover);");
+    for (const theme of THEMES) {
+      const hover = tokenValue(theme, "--color-row-hover");
+      expect(hover).toBeDefined();
+      expect(hover).not.toBe(tokenValue(theme, "--color-bg-subtle"));
+    }
+  });
+
+  test("table body cells sit on the surface, so row hover cannot tint them", () => {
+    expect(ruleFor(".data-table td"))
+      .toContain("background: var(--color-bg-surface);");
+    expect(ruleFor(".roam-table td"))
+      .toContain("background: var(--color-bg-surface);");
+  });
+});

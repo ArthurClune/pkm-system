@@ -147,7 +147,10 @@ Rules a change to the gate must keep:
   (`UnstableCountError`) and scenario R measures two passes. Clocks, timezone,
   fixture copies, typing paces and browser context groups
   (`CONTEXT_GROUPS` in `contextGroups.ts`, which `check.ts --only`
-  expands) are pinned beside the code that needs them. Metrics that stay
+  expands) are pinned beside the code that needs them. The fixture build
+  pins the `db_generation` the schema seeds randomly (`FIXTURE_DB_GENERATION`),
+  because the gzipped sync snapshot carries it and a fresh value moves
+  `api_bytes` by a byte or two. Metrics that stay
   noisy under these controls are classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)

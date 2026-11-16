@@ -177,3 +177,18 @@ def test_build_passes_the_batch_through_on_a_base_without_the_judge(
     monkeypatch.delattr(b.ops_core, "judge_batch")
     batch = _batch()
     assert b._judged(batch) is batch
+
+
+def test_build_pins_db_generation(tmp_path):
+    # the schema seeds a random db_generation that rides in the gzipped sync
+    # snapshot; two builds must agree on it or H/cold api_bytes jitters
+    gens = []
+    for name in ("a.sqlite3", "b.sqlite3"):
+        dest = tmp_path / name
+        b.build(dest, seed=1, scale=0.02)
+        con = connect(dest)
+        gens.append(read(
+            con, "SELECT value FROM sync_meta WHERE key='db_generation'"
+        ).fetchone()[0])
+        con.close()
+    assert gens[0] == gens[1] == b.FIXTURE_DB_GENERATION

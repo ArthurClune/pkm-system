@@ -53,6 +53,10 @@ _BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
 
 LOCK_WAIT_S = 20 * 60  # a frontend confirmation takes minutes, not this long
 UNUSED_FOR_S = 7 * 86_400  # a run marks what it uses; no run lasts this long
+# The schema seeds db_generation randomly and the sync snapshot carries it,
+# so its gzip size would move by a byte or two per rebuild and read as an
+# api_bytes regression. Pinned here, never in the product schema.
+FIXTURE_DB_GENERATION = "0" * 32
 ORPHAN_AFTER_S = 3600  # builds take seconds under the lock; older temps are dead
 
 
@@ -131,6 +135,9 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
     init_db(dest)
     con = open_db(dest)
     try:
+        con.execute("UPDATE sync_meta SET value = ? WHERE key = 'db_generation'",
+                    (FIXTURE_DB_GENERATION,))
+        con.commit()
         for i, batch in enumerate(fx.batches):
             # The generator's ops are plain dicts: each is validated as one.
             ob = OpBatch(client_id=ClientId("perf-fixture"),

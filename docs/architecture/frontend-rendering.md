@@ -187,8 +187,12 @@ the options would drop it. The cases are in the
 A `query` segment carries `expr` (the head, without options), `options`,
 and `span`, the whole `{{...}}` in the text the tokenizer was given.
 `QueryBlock` is the eager shell. `QueryResults` reads
-`GET /api/query/records` first, since the records decide the default view,
-and reads `/api/query`'s groups only once the blocks view shows.
+`GET /api/query/records` first, since the records decide the default view.
+When no record has a cell the default is blocks and the records answer
+carries the groups (the server's condition and `queryDefaults` are the same
+rule; each side has a test pinning it), so that view needs no second
+request. Otherwise `/api/query` is read for the groups: alongside the records
+when the macro saves `view: blocks`, on demand when the reader picks Blocks.
 
 | View | Shows |
 |---|---|

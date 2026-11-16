@@ -1,13 +1,15 @@
 // pattern: Imperative Shell
 // A {{query}} block's results, loaded lazily by QueryBlock: its records as a
 // table, cards or today's grouped blocks, with the filter, sort, view and
-// columns the macro's options save. The records come first, since they
-// decide the default view; the grouped blocks are fetched only once that
-// view is shown. Cell writes and Save need the host block's edit access and
-// a connection: queries are online-only. While a cell edit holds the rows in
-// place, a refetch that drops a held row's record keeps showing the record
-// it last had (holdRecords), so a row an edit took out of the query stays
-// put, writable, until the view changes.
+// columns the macro's options save. The records decide the default view, and
+// when it is blocks they carry the grouped blocks too, so a query without
+// `::` cells takes one request. Otherwise the blocks come from /api/query,
+// started with the records when the macro saves the blocks view and on
+// demand when the reader picks it. Cell writes and Save need the host
+// block's edit access and a connection: queries are online-only. While a
+// cell edit holds the rows in place, a refetch that drops a held row's
+// record keeps showing the record it last had (holdRecords), so a row an
+// edit took out of the query stays put, writable, until the view changes.
 import { Fragment, useCallback, useContext, useEffect, useRef,
          useState } from "react";
 import { useNavigate } from "react-router";
@@ -53,6 +55,9 @@ interface Records {
   held: ReadonlyMap<string, QueryRecordModel>;
 }
 
+const loadKey = (expr: string, generation: number): string =>
+  `${expr}\u0000${generation}`;
+
 const NO_RECORDS: Records = { records: [], held: new Map() };
 
 interface Loaded {
@@ -87,17 +92,33 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   // even when the offline gateway does not honor an AbortController.
   const recordsGuard = useStaleGuard();
   const groupsGuard = useStaleGuard();
+  // The `expr`/generation the groups state answers, and the one whose
+  // records last settled (a landed answer or an error).
   const groupsFor = useRef<string | null>(null);
+  // The load a /api/query was last started for, kept after a failure so the
+  // refetch when the records land does not retry it away.
+  const groupsTried = useRef<string | null>(null);
+  const recordsFor = useRef<string | null>(null);
   // Read when a load lands, which must not wait on or rerun for the view.
   const frozenNow = useRef<readonly string[] | null>(null);
   useEffect(() => { frozenNow.current = view?.frozen ?? null; }, [view]);
 
   useEffect(() => {
     const token = recordsGuard.begin();
+    const want = loadKey(expr, generation);
     void (async () => {
       try {
         const p = await apiGet("/api/query/records", { query: { expr } });
         if (recordsGuard.isStale(token)) return;
+        recordsFor.current = want;
+        if (p.groups != null) {
+          // These are as new as the records: drop a /api/query still in
+          // flight for this load, which the groups effect will not repeat.
+          groupsGuard.begin();
+          groupsFor.current = want;
+          setGroups(p.groups);
+          setGroupsError(null);
+        }
         const frozen = frozenNow.current;
         setRecords((cur) => ({
           records: p.records,
@@ -105,10 +126,12 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
         setLoaded({ keys: p.keys, total: p.total, defaults: queryDefaults(p) });
         setError(null);
       } catch (e: unknown) {
-        if (!recordsGuard.isStale(token)) setError(errorText(e));
+        if (recordsGuard.isStale(token)) return;
+        recordsFor.current = want;
+        setError(errorText(e));
       }
     })();
-  }, [expr, generation, recordsGuard]);
+  }, [expr, generation, recordsGuard, groupsGuard]);
 
   // A refetch or an edit of the macro's options brings a new saved view;
   // one the reader has not touched follows it.
@@ -119,11 +142,20 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
       : stepView(v, { kind: "loaded", saved }));
   }, [loaded, options]);
 
-  const showsBlocks = view?.live.view === "blocks";
+  // Blocks wanted before the records say so: the macro saves the view.
+  const savedBlocks = options.view === "blocks";
+  const shownView = view?.live.view ?? null;
+  const showsBlocks = shownView === "blocks";
   useEffect(() => {
-    const want = `${expr}\u0000${generation}`;
-    if (!showsBlocks || groupsFor.current === want) return;
+    const want = loadKey(expr, generation);
+    // Leaving the blocks view and returning retries a failed fetch.
+    if (shownView !== null && !showsBlocks) groupsTried.current = null;
+    if (groupsFor.current === want || groupsTried.current === want) return;
+    // Otherwise the records decide: they may carry the groups themselves.
+    const recordsDecided = recordsFor.current === want;
+    if (!(savedBlocks || (showsBlocks && recordsDecided))) return;
     const token = groupsGuard.begin();
+    groupsTried.current = want;
     void (async () => {
       try {
         const p = await apiGet("/api/query", { query: { expr } });
@@ -135,7 +167,8 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
         if (!groupsGuard.isStale(token)) setGroupsError(errorText(e));
       }
     })();
-  }, [showsBlocks, expr, generation, groupsGuard]);
+  }, [shownView, showsBlocks, savedBlocks, loaded, expr, generation,
+      groupsGuard]);
 
   const patch = useCallback((key: string,
                              fn: (r: QueryRecordModel) => QueryRecordModel) => {

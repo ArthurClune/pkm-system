@@ -333,10 +333,15 @@ class KeyStat(StrictModel):
 class QueryRecordsPayload(StrictModel):
     """GET /api/query/records: one record per row, in the order of each
     one's first result, and the column candidates ranked by how many
-    records hold them. `total` counts records, not results."""
+    records hold them. `total` counts records, not results. `groups` is
+    what `GET /api/query` returns as `groups` for the same expression,
+    present (an empty list when nothing matched) exactly when no record
+    has a cell, which is when the blocks view is the default; null
+    otherwise."""
     records: list[QueryRecordModel]
     keys: list[KeyStat]
     total: int
+    groups: list[QueryGroup] | None = None
 
 
 class ChangedItem(StrictModel):

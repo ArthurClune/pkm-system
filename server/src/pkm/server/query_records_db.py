@@ -185,6 +185,13 @@ def fetch_records(db: Db, sql: str, params: Sequence[str]) -> RecordsResult:
     """The records of a `query.plan_sql` plan, in its result order, with the
     query's own macro blocks left out as `/api/query` leaves them out."""
     with read_txn(db):
-        results = _result_blocks(db, list(iter_plan_rows(db, sql, params)))
-        holders, attrs = _holders(db, results)
+        return records_in_snapshot(db, sql, params)
+
+
+def records_in_snapshot(db: Db, sql: str,
+                        params: Sequence[str]) -> RecordsResult:
+    """`fetch_records` for a caller that already holds a `read_txn`, so it
+    can read more in the same snapshot."""
+    results = _result_blocks(db, list(iter_plan_rows(db, sql, params)))
+    holders, attrs = _holders(db, results)
     return build_records(results, holders, attrs)

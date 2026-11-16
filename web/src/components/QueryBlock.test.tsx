@@ -33,7 +33,8 @@ function group(n: number, name: string, items: [string, string][],
 }
 
 /** The records route's answer for results with no :: lines: one line record
- * per result, as the server maps a plain block. */
+ * per result, as the server maps a plain block, and the groups it then
+ * carries for the blocks view. */
 function linesOf(groups: QueryGroup[]): QueryRecordsPayload {
   const records = groups.flatMap((g) => g.items.map((it): QueryRecordModel => ({
     key: `l:${it.uid}`, kind: "line", page_id: g.page_id,
@@ -41,7 +42,7 @@ function linesOf(groups: QueryGroup[]): QueryRecordsPayload {
     result_uids: [it.uid], cells: {}, insert_parent_uid: it.uid,
     insert_before_order_idx: null, last_attr_order_idx: null,
   })));
-  return { records, keys: [], total: records.length };
+  return { records, keys: [], total: records.length, groups };
 }
 
 const recordsUrl = (enc: string) => `/api/query/records?${enc}`;
@@ -70,9 +71,8 @@ it("renders more than seventy results from one request without show more", async
 
   expect(await screen.findByText("result 70")).toBeInTheDocument();
   expect(screen.getByText("71 of 71 results")).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(fetchMock).toHaveBeenCalledWith(
-    `/api/query?${ENC}`, READ_INIT);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith(recordsUrl(ENC), READ_INIT);
   expect(screen.queryByRole("button", { name: /show more/i })).toBeNull();
 });
 
@@ -114,7 +114,7 @@ it("caps nested query recursion with an inert placeholder and no extra fetch", a
   expect(await screen.findByText("1 of 1 results")).toBeInTheDocument();
   // The nested query inside the result item sits at the cap: inert, no fetch.
   expect(await screen.findByText(`{{query: ${EXPR}}}`)).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
 const BETA = [group(2, "Beta page", [["beta01", "recovered"]])];
@@ -887,5 +887,84 @@ describe("cell writes", () => {
     } finally {
       handle.release();
     }
+  });
+});
+
+describe("one request per default view", () => {
+  const urls = (mock: ReturnType<typeof stubFetch>) =>
+    mock.mock.calls.map(([u]) => String(u));
+
+  it("shows a no-cells query's blocks from the records answer alone", async () => {
+    const groups = [group(1, "Todo page", [["todo01", "write it up"]])];
+    const mock = stubFetch([[recordsUrl(BOOK_ENC), linesOf(groups)]]);
+    renderBlock(`{{query: ${BOOK}}}`);
+    expect(await screen.findByText("write it up")).toBeInTheDocument();
+    expect(urls(mock)).toEqual([recordsUrl(BOOK_ENC)]);
+  });
+
+  it("makes no /api/query request for a table query", async () => {
+    const mock = stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    expect(urls(mock)).toEqual([recordsUrl(BOOK_ENC)]);
+  });
+
+  it("starts both requests at once for a saved blocks view over cells", async () => {
+    const records = defer<Response>();
+    const groups = defer<Response>();
+    const mock = routeFetch([
+      [recordsUrl(BOOK_ENC), records.promise],
+      [`/api/query?${BOOK_ENC}`, groups.promise],
+    ]);
+    renderBlock(`{{query: ${BOOK} | view: blocks}}`);
+    await vi.waitFor(() => expect(urls(mock)).toEqual(
+      [recordsUrl(BOOK_ENC), `/api/query?${BOOK_ENC}`]));
+    groups.resolve(jsonResponse({ groups: BOOK_GROUPS, total: 2 }));
+    records.resolve(jsonResponse(BOOKS));
+    expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
+    expect(urls(mock)).toHaveLength(2);
+  });
+
+  it("fetches the blocks on demand when the reader picks Blocks", async () => {
+    const mock = stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Blocks" }));
+    expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
+    expect(urls(mock)).toEqual(
+      [recordsUrl(BOOK_ENC), `/api/query?${BOOK_ENC}`]);
+  });
+
+  it("takes a resync's groups from the records answer without /api/query", async () => {
+    const first = [group(1, "Todo page", [["todo01", "old result"]])];
+    const later = [group(1, "Todo page", [["todo02", "new result"]])];
+    const mock = stubFetch([[recordsUrl(BOOK_ENC), linesOf(first)]]);
+    const { setSync } = renderBlock(`{{query: ${BOOK}}}`);
+    expect(await screen.findByText("old result")).toBeInTheDocument();
+    stubFetch([[recordsUrl(BOOK_ENC), linesOf(later)]]);
+    setSync(makeSync("connected", { resyncGeneration: 1 }));
+    expect(await screen.findByText("new result")).toBeInTheDocument();
+    expect(screen.queryByText("old result")).toBeNull();
+    expect(urls(mock)).toEqual([recordsUrl(BOOK_ENC)]);
+  });
+
+  it("does not let a slower /api/query overwrite the groups the records carried", async () => {
+    const slow = defer<Response>();
+    const older = [group(1, "Todo page", [["todo01", "old result"]])];
+    const newer = [group(1, "Todo page", [["todo02", "new result"]])];
+    // A saved blocks view starts /api/query with the records; the records
+    // answer, newer, carries the groups and lands while it is pending.
+    routeFetch([
+      [recordsUrl(BOOK_ENC), jsonResponse(linesOf(newer))],
+      [`/api/query?${BOOK_ENC}`, slow.promise],
+    ]);
+    renderBlock(`{{query: ${BOOK} | view: blocks}}`);
+    expect(await screen.findByText("new result")).toBeInTheDocument();
+    await act(async () => {
+      slow.resolve(jsonResponse({ groups: older, total: 1 }));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText("old result")).toBeNull();
+    expect(screen.getByText("new result")).toBeInTheDocument();
   });
 });

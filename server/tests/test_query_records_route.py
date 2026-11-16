@@ -321,3 +321,61 @@ def test_records_many(seeded_config):
     # more each for their `::` lines, insert points and (lines) holders.
     # Nothing else grows.
     assert many_statements == few_statements + 2 + 2 + 3
+
+
+def _plain_query_groups(client, expr: str) -> list[dict]:
+    r = client.get("/api/query", params={"expr": expr})
+    assert r.status_code == 200, r.text
+    return r.json()["groups"]
+
+
+def test_records_without_cells_carry_the_query_groups(client):
+    """No record has a `::` cell, so the web defaults to the blocks view:
+    the records answer carries what `/api/query` would, and that view takes
+    one request."""
+    _ops(client,
+         _line("todo_a", "Page A", "first #Topic", 0),
+         _line("todo_b", "Page B", "second #Topic", 0),
+         _line("todo_c", "Page B", "nested #Topic third", 1, "todo_b"))
+    expr = "{and: [[Topic]]}"
+    body = _records(client, expr)
+
+    assert all(not rec["cells"] for rec in body["records"])
+    assert body["groups"]
+    assert body["groups"] == _plain_query_groups(client, expr)
+
+
+def test_records_with_no_results_carry_empty_groups(client):
+    """An empty list, not an absent field: nothing matched, so no record
+    has cells and the blocks view is the default."""
+    body = _records(client, "{and: [[Nothing Matches This]]}")
+    assert body["records"] == []
+    assert body["groups"] == []
+
+
+def test_records_with_cells_carry_no_groups(client):
+    _seed_books(client)
+    body = _records(client, "{and: [[Book]]}")
+    assert any(rec["cells"] for rec in body["records"])
+    assert body["groups"] is None
+
+
+def test_records_groups_come_from_the_records_snapshot(client, seeded_config,
+                                                       monkeypatch):
+    """A write landing between the records read and the groups read must
+    not leave the groups showing a result the records lack."""
+    _ops(client, _line("todo_a", "Page A", "first #Topic", 0))
+    before = _records(client, "{and: [[Topic]]}")
+    real = query_records_db._result_blocks
+
+    def racing(db, *args):
+        other = open_db(seeded_config.db_path)
+        try:
+            other.execute("DELETE FROM blocks WHERE uid = ?", ("todo_a",))
+            other.commit()
+        finally:
+            other.close()
+        return real(db, *args)
+
+    monkeypatch.setattr(query_records_db, "_result_blocks", racing)
+    assert _records(client, "{and: [[Topic]]}") == before

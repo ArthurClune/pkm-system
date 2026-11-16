@@ -55,6 +55,11 @@ LOCK_WAIT_S = 20 * 60  # a frontend confirmation takes minutes, not this long
 UNUSED_FOR_S = 7 * 86_400  # a run marks what it uses; no run lasts this long
 ORPHAN_AFTER_S = 3600  # builds take seconds under the lock; older temps are dead
 
+# The schema seeds db_generation randomly and the sync snapshot carries it,
+# so its gzip size would move by a byte or two per rebuild and read as an
+# api_bytes regression. Pinned here, never in the product schema.
+FIXTURE_DB_GENERATION = "0" * 32
+
 
 class CacheLockTimeout(RuntimeError):
     pass
@@ -131,6 +136,9 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
     init_db(dest)
     con = open_db(dest)
     try:
+        con.execute("UPDATE sync_meta SET value = ? WHERE key = 'db_generation'",
+                    (FIXTURE_DB_GENERATION,))
+        con.commit()
         for i, batch in enumerate(fx.batches):
             # The generator's ops are plain dicts: each is validated as one.
             ob = OpBatch(client_id=ClientId("perf-fixture"),
@@ -160,6 +168,12 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
             [(a.sha256, a.filename, a.mime, a.size, a.created_at, a.description) for a in fx.assets])
         con.executemany("INSERT INTO sidebar_entries(title, order_idx) VALUES (?,?)",
                         [(t, i) for i, t in enumerate(fx.sidebar)])
+        con.commit()
+        # Write scenarios' trigger counts depend on the FTS segment phase:
+        # the first FTS write pays a crisis merge whose size follows the
+        # fixture. One segment per index makes them independent of it.
+        for fts in ("blocks_fts", "pages_fts"):
+            con.execute(f"INSERT INTO {fts}({fts}) VALUES('optimize')")
         con.commit()
         con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:

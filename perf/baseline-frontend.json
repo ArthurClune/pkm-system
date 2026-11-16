@@ -1,5 +1,5 @@
 {
-  "commit": "06cd655",
+  "commit": "5be15b5c",
   "env": {
     "chromium": "149.0.7827.55"
   },
@@ -65,7 +65,7 @@
     "H/cold": {
       "api_bytes": {
         "class": "exact",
-        "value": 1800101
+        "value": 1800082
       },
       "changes_requests": {
         "class": "exact",

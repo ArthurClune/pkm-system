@@ -29,9 +29,10 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (busy_reason, busy_report, exit_code, frontend_letters, incomparable_advice,
-                                is_test_runner, missing_import_advice, missing_pkm_import, next_steps, parse_ps,
-                                scenarios_of, sides_for, stale_entries, top_processes)
+from perfcheck.run_core import (RebaselinePlan, base_servable, busy_reason, busy_report, exit_code,
+                                frontend_letters, incomparable_advice, is_test_runner, missing_import_advice,
+                                missing_pkm_import, next_steps, parse_context_groups, parse_ps,
+                                rebaseline_plan, scenarios_of, sides_for, stale_entries, top_processes)
 from repo_git import GitError, changed_paths, git, repo_root
 
 FRONTEND_PORT = 8977
@@ -363,8 +364,77 @@ def _baseline_path(repo: Path, side: str) -> Path:
     return repo / "perf" / f"baseline-{side}.json"
 
 
+def _base_baseline(wt: Path, side: str) -> dict | None:
+    """The merge base's committed baseline, or None when it is missing or
+    unusable."""
+    try:
+        doc = json.loads(_baseline_path(wt, side).read_text())
+        doc["scenarios"].keys()
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return None
+    return doc
+
+
+def _branch_baseline(repo: Path, side: str) -> dict | None:
+    """This branch's committed baseline; None when absent."""
+    path = _baseline_path(repo, side)
+    if not path.exists():
+        return None
+    try:
+        doc = json.loads(path.read_text())
+        for key in ("scenarios", "fixture_hash", "env"):
+            doc[key]
+        doc["scenarios"].keys()
+    except (ValueError, KeyError, AttributeError, TypeError) as e:
+        rel = path.relative_to(repo)
+        raise PerfRunError(f"{rel} is not a usable baseline ({e}), a merge conflict "
+                           f"perhaps; restore it with `git checkout main -- {rel}` and run again") from e
+    return doc
+
+
+def _groups(repo: Path, side: str) -> list[str]:
+    """check.ts's context groups, which `--only` expands to; the backend has
+    none."""
+    if side != "frontend":
+        return []
+    path = repo / "web" / "tooling" / "perf" / "contextGroups.ts"
+    try:
+        return parse_context_groups(path.read_text())
+    except (OSError, ValueError) as e:
+        raise PerfRunError(f"cannot read CONTEXT_GROUPS from {path.relative_to(repo)} ({e}); "
+                           "update parse_context_groups in perfcheck/run_core.py to match") from e
+
+
 def _write(path: Path, doc: dict) -> None:
     path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def _rebaseline_docs(runner: BackendRunner | FrontendRunner, repo: Path, wt: Path, commit: str,
+                     side: str, runs: int) -> tuple[list[dict], dict[str, dict], RebaselinePlan | None]:
+    """The merge-base recording runs, the committed entries to carry over
+    unchanged, and the plan. Scenarios the merge base cannot run are not
+    measured there. With no usable base baseline everything is."""
+    base_baseline = _base_baseline(wt, side)
+    if base_baseline is None:
+        return [runner.run(wt, None, commit) for _ in range(runs)], {}, None
+    branch_baseline = _branch_baseline(repo, side)
+    head_doc = runner.run(repo, None, head_commit(repo))  # the scenarios the harness measures
+    comparable = branch_baseline is not None and incomparable_reason(branch_baseline, head_doc) is None
+    committed = branch_baseline["scenarios"] if comparable and branch_baseline else None
+    plan = rebaseline_plan(head_doc["scenarios"], committed, base_baseline, _groups(repo, side))
+    # the head run is the first branch sample; bootstrap needs `runs` real ones
+    branch_samples = [head_doc]
+    if plan.from_branch:
+        branch_samples += [runner.run(repo, list(plan.from_branch), head_commit(repo))
+                           for _ in range(runs - 1)]
+    docs = []
+    for i in range(runs):
+        doc = (runner.run(wt, list(plan.at_base), commit) if plan.at_base
+               else {**head_doc, "scenarios": {}})
+        doc["scenarios"].update({n: branch_samples[min(i, len(branch_samples) - 1)]["scenarios"][n]
+                                 for n in plan.from_branch})
+        docs.append(doc)
+    return docs, {n: committed[n] for n in plan.carried} if committed else {}, plan
 
 
 def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
@@ -375,7 +445,12 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
     else:
         wait_until_quiet(side, repo)
     wt, commit = merge_base_worktree(repo, side) if at_merge_base else (repo, head_commit(repo))
-    docs = [runner.run(wt, None, commit) for _ in range(runs)]
+    carried: dict[str, dict] = {}
+    plan = None
+    if at_merge_base:
+        docs, carried, plan = _rebaseline_docs(runner, repo, wt, commit, side, runs)
+    else:
+        docs = [runner.run(wt, None, commit) for _ in range(runs)]
     if not allow_busy:
         ensure_still_quiet(side, repo)
     base, unstable = bootstrap(docs)
@@ -386,17 +461,25 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
         print("\nSee the spec's Determinism section: fix the source in the harness first; "
               "reclassify to band only if the variation is inherent.")
         return 1
+    base["scenarios"].update(carried)
     _write(_baseline_path(repo, side), base)
-    print(f"## {side}: baseline written from {runs} runs at {commit}")
+    shown = docs[0]["commit"] if plan and not plan.at_base else commit
+    print(f"## {side}: baseline written from {runs} runs at {shown}")
+    if plan and plan.carried:
+        print("kept from the branch baseline, which the merge base cannot run: "
+              + ", ".join(plan.carried))
+    if plan and plan.from_branch:
+        print("recorded from the branch, which the merge base cannot run and which "
+              "had no usable branch entry: " + ", ".join(plan.from_branch))
     return 0
 
 
 def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
     path = _baseline_path(repo, side)
-    if not path.exists():
+    baseline = _branch_baseline(repo, side)
+    if baseline is None:
         print(f"## {side}: no baseline — run `perf/check.sh {side} --bootstrap`")
         return 1
-    baseline = json.loads(path.read_text())
     runner = _runner(repo, side)
     start_load = _load1() if allow_busy else wait_until_quiet(side, repo)
     result = runner.run(repo, None, head_commit(repo))
@@ -421,7 +504,11 @@ def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
         mb = None
         if survivors:
             wt, mb_commit = merge_base_worktree(repo, side)
-            mb = runner.run(wt, scenarios_of(survivors), mb_commit)
+            served = base_servable(scenarios_of(survivors), _base_baseline(wt, side),
+                                   baseline["scenarios"].keys() | result["scenarios"].keys(),
+                                   _groups(repo, side))
+            if served:
+                mb = runner.run(wt, served, mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)
     end_load = _load1() if allow_busy else ensure_still_quiet(side, repo)
     rc = exit_code(c, outcomes)

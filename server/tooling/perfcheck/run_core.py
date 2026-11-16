@@ -193,3 +193,65 @@ def missing_import_advice(name: str, merge_base: str, side: str) -> str:
             "Land that module on `main` first, so the merge base has it; or, if the "
             f"comparison with main is not needed, run `perf/check.sh {side} --bootstrap` "
             "and give the reason in the commit message")
+
+
+_GROUPS_RE = re.compile(r"CONTEXT_GROUPS\s*=\s*\[([^\]]*)\]")
+
+
+def parse_context_groups(source: str) -> list[str]:
+    """The letter groups `web/tooling/perf/contextGroups.ts` declares, read
+    from its source so this module keeps no second copy."""
+    m = _GROUPS_RE.search(source)
+    if m is None:
+        raise ValueError("CONTEXT_GROUPS not found in contextGroups.ts")
+    return re.findall(r'"([^"]+)"', m.group(1))
+
+
+def base_servable(names: Iterable[str], base_baseline: Mapping | None,
+                  universe: Collection[str] = (),
+                  groups: Collection[str] = ()) -> list[str]:
+    """The scenarios in `names` to measure at the merge base. One the base's
+    committed baseline never recorded is treated as added on the branch, and
+    is not measured there: a survivor without a merge-base run can only read
+    `regression`, so a wrong guess can misread a stale baseline as a
+    regression but never pass one. Frontend `groups` make the unit a whole
+    letter group: check.ts runs every scenario of the group's letters in one
+    run, so a name stays only when every scenario of `universe` in its group
+    was recorded. With no readable base baseline every name stays."""
+    if base_baseline is None:
+        return list(names)
+    recorded = base_baseline["scenarios"]
+
+    def letter(name: str) -> str:
+        return name.split("/", 1)[0]
+
+    def needed(name: str) -> set[str]:
+        if not groups:
+            return {name}
+        letters = next((set(g) for g in groups if letter(name) in g), {letter(name)})
+        return {u for u in {*universe, name} if letter(u) in letters}
+
+    return [n for n in names if needed(n) <= recorded.keys()]
+
+
+@dataclass(frozen=True)
+class RebaselinePlan:
+    at_base: tuple[str, ...]
+    carried: tuple[str, ...]
+    from_branch: tuple[str, ...]
+
+
+def rebaseline_plan(head_names: Iterable[str], committed: Mapping | None,
+                    base_baseline: Mapping, groups: Collection[str] = ()) -> RebaselinePlan:
+    """How `--rebaseline` records each scenario the harness measures. One the
+    merge base cannot run (`base_servable`) keeps the branch's committed
+    entry, because a branch measurement there would turn a branch regression
+    into the baseline; with no usable committed entry (`committed` is None
+    when the old values cannot stand, e.g. the fixture changed) it is
+    measured on the branch."""
+    head = sorted(set(head_names))
+    at_base = base_servable(head, base_baseline, head, groups)
+    rest = [n for n in head if n not in at_base]
+    carried = [n for n in rest if committed is not None and n in committed]
+    return RebaselinePlan(tuple(at_base), tuple(carried),
+                          tuple(n for n in rest if n not in carried))

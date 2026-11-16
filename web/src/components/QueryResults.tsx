@@ -11,13 +11,15 @@
 // drops a held row's record keeps showing the record it last had
 // (holdRecords), so a row an edit took out of the query stays put,
 // writable, until the view changes; and a view or column list that follows
-// the data's defaults stays as the first edit saw it (showQuery).
+// the data's defaults stays as the first edit saw it (showQuery). The state
+// and the rule for when to read /api/query are queryBlock.ts's; this file
+// runs the requests and dispatches their answers.
 import { Fragment, useCallback, useContext, useEffect, useLayoutEffect,
-         useRef, useState } from "react";
+         useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { OfflineError } from "../api/client";
 import { apiGet } from "../api/typedClient";
-import type { KeyStat, QueryGroup, QueryRecordModel } from "../api/payloads";
+import type { QueryGroup, QueryRecordModel } from "../api/payloads";
 import { useStaleGuard } from "../useStaleGuard";
 import type { MacroOptions, MacroView } from "../grammar/macroOptions";
 import { formatMacroOptions,
@@ -27,18 +29,15 @@ import { InlineSegments } from "./InlineSegments";
 import { BlockEditContext, SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
 import { useResync, useSyncHealth } from "../sync/SyncProvider";
+import { initialQueryBlock, QUERY_BLOCK } from "../tables/queryBlock";
 import { QueryCards } from "../tables/QueryCards";
 import { QueryTable } from "../tables/QueryTable";
-import { holdRecords, planQuerySave, queryDefaults,
-         type QueryColumn } from "../tables/queryView";
-import { editedEvent, initialQueryView, showQuery, stepQueryView,
-         type QueryViewEvent,
-         type QueryViewState } from "../tables/queryViewState";
+import { planQuerySave, type QueryColumn } from "../tables/queryView";
+import { editedEvent, type QueryViewEvent } from "../tables/queryViewState";
 import { island } from "../tables/island";
 import { TableToolbar } from "../tables/TableToolbar";
 import { useCellWrites } from "../tables/useCellWrites";
-import { isDirty, optionsFromView, viewFromOptions, type ViewDefaults,
-         type ViewState } from "../tables/viewState";
+import { isDirty, optionsFromView, type ViewState } from "../tables/viewState";
 import { WriteNotice } from "../tables/WriteNotice";
 import { MISSING_ANCESTOR_TEXT } from "./groups";
 import { PageLink } from "./PageLink";
@@ -53,22 +52,8 @@ const VIEWS: { view: MacroView; label: string }[] = [
   { view: "cards", label: "Cards" },
 ];
 
-interface Records {
-  records: QueryRecordModel[];
-  /** Frozen rows' records the last refetch dropped, by key. */
-  held: ReadonlyMap<string, QueryRecordModel>;
-}
-
 const loadKey = (expr: string, generation: number): string =>
   `${expr}\u0000${generation}`;
-
-const NO_RECORDS: Records = { records: [], held: new Map() };
-
-interface Loaded {
-  keys: KeyStat[];
-  total: number;
-  defaults: ViewDefaults;
-}
 
 export interface QueryResultsProps {
   expr: string;
@@ -80,76 +65,63 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const edit = useContext(BlockEditContext);
   const { status } = useSyncHealth();
   const canEdit = edit !== null && status === "connected";
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [{ records, held }, setRecords] = useState<Records>(NO_RECORDS);
-  const [groups, setGroups] = useState<QueryGroup[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [groupsError, setGroupsError] = useState<string | null>(null);
-  const [qv, setQv] = useState<QueryViewState | null>(null);
-  const view = qv?.view ?? null;
+  const [state, dispatch] = useReducer(QUERY_BLOCK.step, options,
+                                       initialQueryBlock);
+  const { loaded, records, groups, error, groupsError } = state;
+  const view = state.qv?.view ?? null;
   const [saveRefusal, setSaveRefusal] =
     useState<{ live: ViewState["live"]; text: string } | null>(null);
   const [generation, setGeneration] = useState(0);
   useResync(useCallback(() => setGeneration((g) => g + 1), []));
+  const load = loadKey(expr, generation);
+
+  // A refetch or an edit of the macro's options brings a new saved view;
+  // one the reader has not touched follows it. Before paint, so no frame
+  // shows the new options over the old view.
+  useLayoutEffect(() => { dispatch({ kind: "options", options }); }, [options]);
 
   // Every load is stamped with a stale-response token. A response is applied
   // only if it is still current when it resolves; this drops stale responses
   // even when the offline gateway does not honor an AbortController.
   const recordsGuard = useStaleGuard();
   const groupsGuard = useStaleGuard();
-  // The load (`loadKey`) whose records last landed or failed: state, so
-  // the groups effect reruns when they settle either way.
-  const [recordsFor, setRecordsFor] = useState<string | null>(null);
-  // The load the groups state answers.
-  const groupsFor = useRef<string | null>(null);
-  // The load a /api/query was last started for, kept after a failure so the
-  // rerun when the records settle does not retry it away.
-  const groupsTried = useRef<string | null>(null);
-  // Read when a load lands, which must not wait on or rerun for the view.
-  const frozenNow = useRef<readonly string[] | null>(null);
-  useLayoutEffect(() => { frozenNow.current = view?.frozen ?? null; }, [view]);
 
   useEffect(() => {
     const token = recordsGuard.begin();
-    const want = loadKey(expr, generation);
     void (async () => {
       try {
-        const p = await apiGet("/api/query/records", { query: { expr } });
-        if (recordsGuard.isStale(token)) return;
-        setRecordsFor(want);
-        if (p.groups !== null) {
-          // These are as new as the records: drop a /api/query still in
-          // flight for this load, which the groups effect will not repeat.
-          groupsGuard.begin();
-          groupsFor.current = want;
-          setGroups(p.groups);
-          setGroupsError(null);
+        const payload = await apiGet("/api/query/records", { query: { expr } });
+        if (!recordsGuard.isStale(token)) {
+          dispatch({ kind: "recordsLanded", load, payload });
         }
-        const frozen = frozenNow.current;
-        setRecords((cur) => ({
-          records: p.records,
-          held: holdRecords(cur.records, cur.held, p.records, frozen) }));
-        setLoaded({ keys: p.keys, total: p.total, defaults: queryDefaults(p) });
-        setError(null);
       } catch (e: unknown) {
-        if (recordsGuard.isStale(token)) return;
-        setRecordsFor(want);
-        setError(errorText(e));
+        if (!recordsGuard.isStale(token)) {
+          dispatch({ kind: "recordsFailed", load, error: errorText(e) });
+        }
       }
     })();
-  }, [expr, generation, recordsGuard, groupsGuard]);
+  }, [expr, load, recordsGuard]);
 
-  // A refetch or an edit of the macro's options brings a new saved view;
-  // one the reader has not touched follows it.
+  const groupsDue = QUERY_BLOCK.groupsFetchDue(state, load);
   useEffect(() => {
-    if (loaded === null) return;
-    const saved = viewFromOptions(options, loaded.defaults);
-    setQv((v) => v === null ? initialQueryView(saved)
-      : stepQueryView(v, { kind: "loaded", saved }));
-  }, [loaded, options]);
+    if (!groupsDue) return;
+    const token = groupsGuard.begin();
+    dispatch({ kind: "groupsStarted", load });
+    void (async () => {
+      try {
+        const p = await apiGet("/api/query", { query: { expr } });
+        if (!groupsGuard.isStale(token)) {
+          dispatch({ kind: "groupsLanded", load, groups: p.groups });
+        }
+      } catch (e: unknown) {
+        if (!groupsGuard.isStale(token)) {
+          dispatch({ kind: "groupsFailed", load, error: errorText(e) });
+        }
+      }
+    })();
+  }, [groupsDue, expr, load, groupsGuard]);
 
-  const shown = loaded === null || qv === null ? null
-    : showQuery(qv, options, loaded.keys, records, held);
+  const shown = QUERY_BLOCK.shown(state);
   // What the last commit showed, for the edit a cell write steps the view
   // with. DataTable's unmount commit calls the onWrite of the render before
   // the change that unmounted it, which would freeze what is gone.
@@ -158,46 +130,14 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
     shownNow.current = shown === null || loaded === null ? null
       : [shown, loaded.keys];
   });
-  const savedBlocks = options.view === "blocks";
-  const shownView = shown?.view ?? null;
-  // The saved view counts until there is a shown one to follow.
-  const wantsBlocks = shownView === null ? savedBlocks : shownView === "blocks";
-  useEffect(() => {
-    const want = loadKey(expr, generation);
-    // Leaving the blocks view and returning retries a failed fetch.
-    if (!wantsBlocks) groupsTried.current = null;
-    if (groupsFor.current === want || groupsTried.current === want) return;
-    // A saved blocks view fetches with the records; otherwise they decide,
-    // since they may carry the groups themselves.
-    if (!wantsBlocks || !(savedBlocks || recordsFor === want)) return;
-    const token = groupsGuard.begin();
-    groupsTried.current = want;
-    void (async () => {
-      try {
-        const p = await apiGet("/api/query", { query: { expr } });
-        if (groupsGuard.isStale(token)) return;
-        groupsFor.current = want;
-        setGroups(p.groups);
-        setGroupsError(null);
-      } catch (e: unknown) {
-        if (!groupsGuard.isStale(token)) setGroupsError(errorText(e));
-      }
-    })();
-  }, [wantsBlocks, savedBlocks, recordsFor, expr, generation, groupsGuard]);
 
   const patch = useCallback((key: string,
                              fn: (r: QueryRecordModel) => QueryRecordModel) => {
-    setRecords((cur) => {
-      const was = cur.held.get(key);
-      return {
-        records: cur.records.map((r) => (r.key === key ? fn(r) : r)),
-        held: was === undefined ? cur.held : new Map(cur.held).set(key, fn(was)),
-      };
-    });
+    dispatch({ kind: "patch", key, fn });
   }, []);
   const writes = useCellWrites(patch);
 
-  const step = (e: QueryViewEvent) => setQv((v) => v && stepQueryView(v, e));
+  const step = (event: QueryViewEvent) => dispatch({ kind: "view", event });
 
   const header = (
     <div className="query-header">

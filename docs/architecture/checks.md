@@ -167,6 +167,8 @@ Rules a change to the gate must keep:
   segment phase (the first FTS write otherwise pays a crisis merge whose
   presence follows the fixture's size). Production's index sits at an
   arbitrary phase, so the fixture's write counts are not its average cost.
+  Its searches also read more segments than the fixture's one per index, so
+  search counts are a best case.
   Metrics that stay noisy under these controls are classed `band` or
   `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides

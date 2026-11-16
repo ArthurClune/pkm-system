@@ -280,6 +280,42 @@ describe("RoamTable", () => {
     expect(called()).toEqual([]);
   });
 
+  it.each([
+    ["[[Page X]]", "Page X"],
+    ["#tagx", "#tagx"],
+    ["((abcDEF123))", "((abcDEF123))"],
+    ["https://e.com/a", "https://e.com/a"],
+    ["[label](https://e.com/a)", "label"],
+  ])("a header %s shows its text, carries no link, and sorts on click",
+     async (headerText, shown) => {
+    const { handlers } = spyHandlers();
+    mount(table("{{table}}", [
+      chain("tuid-h", ["Lab", headerText]),
+      chain("tuid-a", ["apache", "b"]),
+      chain("tuid-b", ["nginx", "a"]),
+    ]), handlers);
+    await loaded();
+    const header = within(screen.getAllByRole("rowgroup")[0]!)
+      .getAllByRole("columnheader")[1]!;
+    expect(within(header).queryByRole("link")).toBeNull();
+    expect(header.querySelector("a")).toBeNull();
+    fireEvent.click(within(header).getByText(shown));
+    expect(bodyTexts()).toEqual(["nginx", "apache"]);
+  });
+
+  it("a header keeps bold and code", async () => {
+    const { handlers } = spyHandlers();
+    mount(table("{{table}}", [
+      chain("tuid-h", ["Lab", "**Hits** `n`"]),
+      chain("tuid-a", ["apache", "1"]),
+    ]), handlers);
+    await loaded();
+    const header = within(screen.getAllByRole("rowgroup")[0]!)
+      .getAllByRole("columnheader")[1]!;
+    expect(header.querySelector("strong")?.textContent).toBe("Hits");
+    expect(header.querySelector("code")?.textContent).toBe("n");
+  });
+
   it("Save refuses a sort on a header that is a block ref", async () => {
     const { handlers, called } = spyHandlers();
     mount(table("{{table}}", [

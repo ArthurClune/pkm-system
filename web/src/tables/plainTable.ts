@@ -5,6 +5,7 @@
 // table saves only a filter and a sort: `view` and `columns` are query
 // options.
 import type { BlockNode } from "../api/payloads";
+import type { BlockSegment, InlineSegment } from "../grammar/tokenize";
 import { tableMacroOptions, type MacroOptions } from "../grammar/macroOptions";
 import {
   formatMacroOptions, normaliseMacroOptions, optionsRefusal,
@@ -77,4 +78,33 @@ export function planTableSave(text: string, next: MacroOptions):
     return { refusal: NO_ROUND_TRIP };
   }
   return { text: written };
+}
+
+/** A header's segments with every link written out as its text, because the
+ * header sits inside the sort button, where an anchor is invalid. A block
+ * ref shows its `((uid))` rather than the referenced text, which only a
+ * component can look up; that is also what an unresolved ref renders. */
+export function headerSegments(segs: readonly InlineSegment[]): InlineSegment[];
+export function headerSegments(segs: readonly BlockSegment[]): BlockSegment[];
+export function headerSegments(segs: readonly BlockSegment[]): BlockSegment[] {
+  return segs.map((seg): BlockSegment => {
+    switch (seg.kind) {
+      case "page-ref":
+        return { kind: "text", text: seg.tag ? `#${seg.title}` : seg.title };
+      case "attribute":
+        return { kind: "text", text: seg.name };
+      case "block-ref":
+        return { kind: "text", text: `((${seg.uid}))` };
+      case "link":
+        return { kind: "text", text: seg.text };
+      case "asset-link":
+        return { kind: "text", text: seg.filename };
+      case "pdf-embed":
+        return { kind: "text", text: seg.href };
+      case "bold": case "italic": case "strike": case "highlight":
+        return { ...seg, children: headerSegments(seg.children) };
+      default:
+        return seg;
+    }
+  });
 }

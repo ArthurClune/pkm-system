@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { block, orderIdxOf } from "../test-helpers";
 import { roamTable } from "../outline/roamTableRows";
+import { tokenizeBlock } from "../grammar/tokenize";
 import { tableMacroOptions } from "../grammar/macroOptions";
 import {
-  bodyRows, planTableSave, shownTableRows, tableColumns, tableSavedView,
+  bodyRows, headerSegments, planTableSave, shownTableRows, tableColumns, tableSavedView,
 } from "./plainTable";
 import type { ViewFields } from "./viewState";
 
@@ -122,5 +123,33 @@ describe("planTableSave", () => {
     const dir = "up" as "asc";
     expect(planTableSave("{{table}}", { sort: { col: "Lab", dir } }))
       .toHaveProperty("refusal");
+  });
+});
+
+describe("headerSegments", () => {
+  const plain = (text: string) => headerSegments(tokenizeBlock(text));
+
+  it("turns a page ref, a tag, an attribute and a block ref into text", () => {
+    expect(plain("[[Page X]]")).toEqual([{ kind: "text", text: "Page X" }]);
+    expect(plain("#tag")).toEqual([{ kind: "text", text: "#tag" }]);
+    expect(plain("((abcDEF123))"))
+      .toEqual([{ kind: "text", text: "((abcDEF123))" }]);
+  });
+
+  it("turns a markdown link and a bare URL into their text", () => {
+    expect(plain("[label](https://e.com/a)"))
+      .toEqual([{ kind: "text", text: "label" }]);
+    expect(plain("https://e.com/a"))
+      .toEqual([{ kind: "text", text: "https://e.com/a" }]);
+  });
+
+  it("reaches links nested in emphasis and keeps the emphasis", () => {
+    expect(plain("**[[Deep]]**")).toEqual([
+      { kind: "bold", children: [{ kind: "text", text: "Deep" }] }]);
+  });
+
+  it("leaves code and plain text alone", () => {
+    const segs = tokenizeBlock("a `b` c");
+    expect(headerSegments(segs)).toEqual(segs);
   });
 });

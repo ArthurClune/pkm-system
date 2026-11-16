@@ -175,9 +175,7 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
               const dir = sort?.col === c.key ? sort.dir : null;
               const button = (
                 <button type="button" className="data-table-sort"
-                        onClick={(e) => {
-                          if (!(e.target as Element).closest("a")) onSortClick(c.key);
-                        }}>
+                        onClick={() => onSortClick(c.key)}>
                   {c.heading ?? c.label}
                   {dir !== null && (
                     <span className="data-table-arrow" aria-hidden="true">

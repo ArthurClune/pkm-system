@@ -484,12 +484,10 @@ describe("DataTable headings", () => {
     expect(screen.getByRole("button", { name: "Rich name" })).toBeInTheDocument();
   });
 
-  it("a click on a link in a heading follows the link and does not sort", () => {
+  it("a click inside a heading sorts", () => {
     const { onSortClick } = mount({ columns: [
-      { ...COLUMNS[0]!, heading: <a href="#page">Page</a> }, ...COLUMNS.slice(1)] });
-    fireEvent.click(screen.getByRole("link", { name: "Page" }));
-    expect(onSortClick).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Page" }));
+      { ...COLUMNS[0]!, heading: <strong>Name</strong> }, ...COLUMNS.slice(1)] });
+    fireEvent.click(screen.getByText("Name"));
     expect(onSortClick).toHaveBeenCalledWith("name");
   });
 });

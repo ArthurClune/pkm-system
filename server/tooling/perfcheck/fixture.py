@@ -110,6 +110,8 @@ class Fixture:
 class _Gen:
     def __init__(self, seed: int, scale: float) -> None:
         self.rng = random.Random(seed)
+        # Its own stream, so attribute pages never shift the draws above.
+        self.attr_rng = random.Random(seed + 104729)
         self.scale = scale
         self.n = 0
         rng = random.Random(seed + 7919)
@@ -180,6 +182,66 @@ class _Gen:
         return uids
 
 
+    def add(self, title_text: str, now_ms: int, parent: str | None, idx: int, text: str) -> str:
+        uid = self.uid()
+        self.creates.append((now_ms, {"op": "create", "uid": uid, "page_title": title_text,
+                                      "parent_uid": parent, "order_idx": idx, "text": text}))
+        self.all_uids.append(uid)
+        return uid
+
+    def attribute_pages(self, now_ms: int) -> None:
+        """Pages and lines carrying `Key:: value` lines, so the records
+        query reads page records, line records, child counts and repeated
+        keys, not only plain lines with empty cells. Every query-matched
+        block holds a hub link: a book page through one top-level `Tags::`
+        line (a page record), a reading-list line directly (a line record
+        whose cells are its `Tags::`/`Local copy::` children). Some carry
+        Hub Beta too, which the records scenario's `not` drops."""
+        rng = self.attr_rng
+        hub, other = HUBS[0], HUBS[1]
+        statuses = ("Read", "read", "Reading", "To read", "")
+        for i in range(max(6, round(120 * self.scale))):
+            title = f"Perf Book {i:04d}"
+            idx = 0
+
+            def line(text: str) -> str:
+                nonlocal idx
+                idx += 1
+                return self.add(title, now_ms, None, idx - 1, text)
+
+            tags = f"Tags:: [[{hub}]] #tag{rng.randint(0, 19)}"
+            if i % 5 == 4:
+                tags += f" [[{other}]]"
+            elif i % 3 == 2:
+                tags = f"Tags:: #tag{rng.randint(0, 19)}"
+            line(tags)
+            line(f"Status:: {rng.choice(statuses)}")
+            line(f"Author:: {self.words(2)}")
+            if i % 4 == 0:
+                line(f"Author:: {self.words(2)}")  # a key repeated in one record
+            line(f"{'Published' if i % 2 else 'Publication'}:: {rng.randint(1950, 2025)}")
+            if i % 7 == 0:
+                line(f"Notes:: {self.words(4)}\n{self.words(5)}")
+            if i % 3 == 0:
+                hl = line("Highlights::")
+                for k in range(rng.randint(1, 3)):
+                    self.add(title, now_ms, hl, k, self.words(6))
+            for _ in range(rng.randint(2, 6)):
+                line(self.words(rng.randint(4, 12)))
+
+        reading = "Perf Reading List"
+        for i in range(max(8, round(60 * self.scale))):
+            item = self.add(reading, now_ms, None, i, f"{self.words(4)} [[{hub}]]")
+            if i % 6 == 5:
+                continue  # a matched line with no `::` children
+            self.add(reading, now_ms, item, 0, f"Tags:: #tag{rng.randint(0, 19)}")
+            copy = self.add(reading, now_ms, item, 1, f"Local copy:: {self.words(2)}.pdf")
+            if i % 4 == 0:
+                self.add(reading, now_ms, copy, 0, self.words(3))
+            if i % 9 == 0:
+                self.add(reading, now_ms, item, 2, f"Tags:: [[{hub}]] [[{other}]]")
+
+
 def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
     g = _Gen(seed, scale)
     year_start = FROZEN_NOW_MS - 365 * DAY_MS
@@ -240,6 +302,8 @@ def generate(seed: int = 1, scale: float = 1.0) -> Fixture:
                 continue
             when = g.rng.randint(lo, hi)
         g.edits.append((when, {"op": "update_text", "uid": uid, "text": g.text() + " (edited)"}))
+
+    g.attribute_pages(year_start + 2 * DAY_MS)
 
     # Fixed-content blocks for the hashed/rename-replay scenarios, added
     # after every sample above so they can never be swept into one: their

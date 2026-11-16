@@ -382,8 +382,9 @@ def _branch_baseline(repo: Path, side: str) -> dict | None:
         return None
     try:
         doc = json.loads(path.read_text())
+        for key in ("scenarios", "fixture_hash", "env"):
+            doc[key]
         doc["scenarios"].keys()
-        doc["fixture_hash"], doc["env"]
     except (ValueError, KeyError, AttributeError, TypeError) as e:
         rel = path.relative_to(repo)
         raise PerfRunError(f"{rel} is not a usable baseline ({e}), a merge conflict "

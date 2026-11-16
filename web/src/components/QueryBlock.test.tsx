@@ -283,7 +283,7 @@ const BOOK_GROUPS = [
   group(2, "Book/Beta", [["res_beta", "Type:: [[Book]]"]]),
 ];
 
-function stubBooks(records: object = BOOKS) {
+function stubBooks(records: QueryRecordsPayload = BOOKS) {
   return stubFetch([
     [recordsUrl(BOOK_ENC), records],
     [`/api/query?${BOOK_ENC}`, { groups: BOOK_GROUPS, total: 2 }],

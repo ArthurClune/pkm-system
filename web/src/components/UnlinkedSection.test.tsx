@@ -108,8 +108,8 @@ it("a batch answered before a link was delivered neither brings the block " +
   expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("offset=1");
 });
 
-it("a link whose local persist fails but that the queue still delivers " +
-   "leaves the list without an error", async () => {
+it("a failed local persist is not a failed link: only delivery decides",
+   async () => {
   vi.stubGlobal("fetch", vi.fn(() =>
     Promise.resolve(jsonResponse(listing([1, 2], 2)))));
   const ticket = controlledSync();
@@ -122,11 +122,16 @@ it("a link whose local persist fails but that the queue still delivers " +
       { status: "failed", error: new Error("SQLITE_CANTOPEN") });
     await ticket.settled.promise;
   });
+  // The queue still holds the write: the block is hidden, with no error and
+  // no Link left to queue a second conversion.
+  expect(screen.queryByText(/SQLITE_CANTOPEN/)).toBeNull();
+  expect(screen.queryByText("Acme mention 1")).toBeNull();
+  expect(screen.getAllByRole("button", { name: "Link" })).toHaveLength(1);
+
   await act(async () => {
     ticket.delivered.resolve({ status: "delivered" });
     await ticket.delivered.promise;
   });
-
   expect(screen.queryByText(/SQLITE_CANTOPEN/)).toBeNull();
   expect(screen.queryByText("Acme mention 1")).toBeNull();
   expect(screen.getByText("Acme mention 2")).toBeInTheDocument();
@@ -156,6 +161,7 @@ it("a link the queue drops shows its error and lists the block again",
   expect(screen.getByText("Error: replica rejected the op"))
     .toBeInTheDocument();
   expect(screen.getByText("Acme mention 1")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Link" })[0]).toBeEnabled();
   expect(screen.getByRole("button", { name: /unlinked references \(2\)/i }))
     .toBeInTheDocument();
 });

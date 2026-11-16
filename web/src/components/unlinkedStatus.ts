@@ -8,10 +8,6 @@
 //   queued        -> delivered   the server applied the write
 //   queued        -> error       delivery fails; the block shows again
 //
-// A settle that failed still queues: unless the replica rejected the op, the
-// queue keeps it and delivers it, and a rejected op fails delivery too, so
-// only delivery decides the error.
-//
 // A queued block is hidden, but the server may still list it, so it counts
 // out of the shown total and the next offset. A delivered block has left the
 // server's list; the section drops it from the loaded groups and the total,

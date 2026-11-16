@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-11-16T10:51:36Z
-updated_at: 2026-11-16T14:05:19Z
+updated_at: 2026-11-16T14:21:40Z
 ---
 
 UnlinkedSection's link conversion awaits ticket.settled and shows the error when it fails, without awaiting ticket.delivered. A settled failure the replica did not reject still retains and delivers the ops (see useCellWrites.send, which waits on delivered for this reason, and docs/architecture/sync-recovery.md § A local write fails). So a conversion that lands on the server reads as failed in the unlinked list. Fix: treat only delivered failing as a failure, as useCellWrites does.
@@ -31,8 +31,8 @@ The list's own status for that moment is renamed from `settled` to `queued`
 `props/backlinks/`), so it no longer reads as the ticket's settle outcome:
 a queued block is hidden and counted out of the total and next offset, and a
 failed delivery moves it to an error and lists it again, as before.
-`sections.test.tsx`'s test that asserted the old error is rewritten to the
-new rule. No other `web/src` reader of `ticket.settled` exists.
+`sections.test.tsx`'s test that asserted the old error is gone; one test in
+`UnlinkedSection.test.tsx` states the rule before and after delivery. No other `web/src` reader of `ticket.settled` exists.
 
 The rule: the `WriteTicket.settled` doc comment in `sync/opQueue.ts`, and
 docs/architecture/sync-recovery.md § A local write fails.

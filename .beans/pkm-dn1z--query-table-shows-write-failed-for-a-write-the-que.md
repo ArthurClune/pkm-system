@@ -1,11 +1,11 @@
 ---
 # pkm-dn1z
 title: Query table shows 'write failed' for a write the queue still delivers
-status: todo
+status: completed
 type: bug
 priority: normal
 created_at: 2026-11-15T21:05:01Z
-updated_at: 2026-11-16T10:41:05Z
+updated_at: 2026-11-16T11:24:31Z
 parent: pkm-l79g
 ---
 

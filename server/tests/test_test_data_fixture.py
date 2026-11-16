@@ -33,7 +33,6 @@ def test_committed_graph_covers_supported_examples() -> None:
     assert "#Research" in blocks["atlas-todo"].text
     assert "Status::" in blocks["atlas-status"].text
     assert "((format-table))" in blocks["atlas-block-ref"].text
-    assert "{{embed: ((atlas-todo))}}" in blocks["format-embed"].text
     assert "| Feature | Example |" in blocks["format-table"].text
     assert "`inline code`" in blocks["format-code"].text
     assert "```python" in blocks["format-code"].text

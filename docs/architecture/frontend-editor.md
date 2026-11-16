@@ -435,6 +435,10 @@ editable target (`isEditableTarget`). A click into a cell leaves a block
 selection standing, and Cmd-C or Shift-Cmd-Arrow in the cell would
 otherwise act on the selected blocks.
 
+A column header is the sort `<button>`, so it renders a plain table's
+header links as their text (`headerSegments`): an `<a>` inside a button is
+invalid and may not get the click. Bold and code stay.
+
 A plain table's cells are blocks. Each row is a child chain under the table
 block, padded with `null` to the widest row (`roamTableRows`). A write to a
 padding cell creates the chain down to it (`planTableCellWrite`). The
@@ -468,6 +472,13 @@ iPad Safari with a hardware keyboard keeps Tab inside an `<input>` for its
 own field navigation and never sends the page a keydown, so Tab could not
 move between cells. Neither the iOS Simulator nor Playwright WebKit
 reproduces this, so only a real iPad shows the break.
+
+Each cell that can open is a tab stop (`tabIndex` 0), and Enter on it
+opens it. A cell that cannot open is not one, so Tab never stops where
+Enter does nothing. Focus stays in the DOM rather than in `stepEditor`. A
+cell closed by a key (Enter, Escape, Tab off either end) takes focus back,
+so the reader keeps their place. One closed by a click elsewhere does not,
+or it would pull focus from what was clicked.
 
 `stepEditor` (`tables/cellEditor.ts`) is the editor, and its cases are in
 the [contract](contracts/frontend-editor.md#the-cell-editor).

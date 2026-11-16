@@ -1949,11 +1949,8 @@ export interface components {
             value_start: number;
             /** Extra Uids */
             extra_uids?: Brands.BlockUid[];
-            /**
-             * Child Count
-             * @default 0
-             */
-            child_count: number;
+            /** Child Count */
+            child_count?: number;
         };
         /** RenamePageRequest */
         RenamePageRequest: {

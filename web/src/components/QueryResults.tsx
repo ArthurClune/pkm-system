@@ -4,7 +4,10 @@
 // columns the macro's options save. The records come first, since they
 // decide the default view; the grouped blocks are fetched only once that
 // view is shown. Cell writes and Save need the host block's edit access and
-// a connection: queries are online-only.
+// a connection: queries are online-only. While a cell edit holds the rows in
+// place, a refetch that drops a held row's record keeps showing the record
+// it last had (holdRecords), so a row an edit took out of the query stays
+// put, writable, until the view changes.
 import { Fragment, useCallback, useContext, useEffect, useRef,
          useState } from "react";
 import { useNavigate } from "react-router";
@@ -22,8 +25,8 @@ import { pagePath } from "../paths";
 import { useResync, useSyncHealth } from "../sync/SyncProvider";
 import { QueryCards } from "../tables/QueryCards";
 import { QueryTable } from "../tables/QueryTable";
-import { planQuerySave, queryColumns, queryDefaults, shownRows,
-         type QueryColumn } from "../tables/queryView";
+import { holdRecords, planQuerySave, queryColumns, queryDefaults,
+         shownRows, type QueryColumn } from "../tables/queryView";
 import { island } from "../tables/island";
 import { TableToolbar } from "../tables/TableToolbar";
 import { useCellWrites } from "../tables/useCellWrites";
@@ -44,6 +47,14 @@ const VIEWS: { view: MacroView; label: string }[] = [
   { view: "cards", label: "Cards" },
 ];
 
+interface Records {
+  records: QueryRecordModel[];
+  /** Frozen rows' records the last refetch dropped, by key. */
+  held: ReadonlyMap<string, QueryRecordModel>;
+}
+
+const NO_RECORDS: Records = { records: [], held: new Map() };
+
 interface Loaded {
   keys: KeyStat[];
   total: number;
@@ -61,7 +72,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const { status } = useSyncHealth();
   const canEdit = edit !== null && status === "connected";
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [records, setRecords] = useState<QueryRecordModel[]>([]);
+  const [{ records, held }, setRecords] = useState<Records>(NO_RECORDS);
   const [groups, setGroups] = useState<QueryGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
@@ -77,7 +88,9 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const recordsGuard = useStaleGuard();
   const groupsGuard = useStaleGuard();
   const groupsFor = useRef<string | null>(null);
-
+  // Read when a load lands, which must not wait on or rerun for the view.
+  const frozenNow = useRef<readonly string[] | null>(null);
+  useEffect(() => { frozenNow.current = view?.frozen ?? null; }, [view]);
 
   useEffect(() => {
     const token = recordsGuard.begin();
@@ -85,7 +98,10 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
       try {
         const p = await apiGet("/api/query/records", { query: { expr } });
         if (recordsGuard.isStale(token)) return;
-        setRecords(p.records);
+        const frozen = frozenNow.current;
+        setRecords((cur) => ({
+          records: p.records,
+          held: holdRecords(cur.records, cur.held, p.records, frozen) }));
         setLoaded({ keys: p.keys, total: p.total, defaults: queryDefaults(p) });
         setError(null);
       } catch (e: unknown) {
@@ -123,7 +139,13 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
 
   const patch = useCallback((key: string,
                              fn: (r: QueryRecordModel) => QueryRecordModel) => {
-    setRecords((rs) => rs.map((r) => (r.key === key ? fn(r) : r)));
+    setRecords((cur) => {
+      const was = cur.held.get(key);
+      return {
+        records: cur.records.map((r) => (r.key === key ? fn(r) : r)),
+        held: was === undefined ? cur.held : new Map(cur.held).set(key, fn(was)),
+      };
+    });
   }, []);
   const writes = useCellWrites(patch);
 
@@ -155,7 +177,8 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
 
   const live = view.live;
   const columns: QueryColumn[] = queryColumns(live.columns, loaded.keys);
-  const { rows, matching } = shownRows(records, columns, live, view.frozen);
+  const { rows, matching } = shownRows(records, columns, live, view.frozen,
+                                      held);
   const next = optionsFromView(live, loaded.defaults);
   const refusal = optionsRefusal(next)
     ?? (saveRefusal?.live === live ? saveRefusal.text : null);

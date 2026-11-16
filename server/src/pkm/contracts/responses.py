@@ -12,6 +12,7 @@ optionality here would surface as `?:` in the generated TypeScript."""
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
+from functools import cache
 from typing import Annotated, Literal, NewType
 
 from pydantic import (BaseModel, BeforeValidator, Field, SerializerFunctionWrapHandler, model_serializer)
@@ -72,9 +73,25 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
         yield from walk_blocks(n.children)
 
 
+@cache
+def _check_omittable(cls: type[BaseModel], fields: tuple[str, ...]) -> None:
+    """Refuse a field left out when empty unless a `default_factory` gives
+    its default. openapi-typescript types a property whose schema carries a
+    `default` as required, and a field with no default is required anyway,
+    so either would promise the web a field the JSON leaves out."""
+    for name in fields:
+        if cls.model_fields[name].default_factory is None:
+            raise TypeError(
+                f"{cls.__name__}.{name} is left out when empty, so declare it "
+                "with Field(default_factory=...): a plain default puts "
+                "`default` in the schema, which the generated TypeScript "
+                "makes required")
+
+
 def _omit_empty(model: BaseModel, handler: SerializerFunctionWrapHandler,
                 *fields: str) -> object:
     """Serialize `model`, leaving out each of `fields` that is empty."""
+    _check_omittable(type(model), fields)
     data = handler(model)
     if isinstance(data, dict):
         for field in fields:
@@ -275,7 +292,7 @@ class RecordCell(StrictModel):
     value: str
     value_start: int
     extra_uids: list[BlockUid] = Field(default_factory=list)
-    child_count: int = 0
+    child_count: int = Field(default_factory=int)
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202

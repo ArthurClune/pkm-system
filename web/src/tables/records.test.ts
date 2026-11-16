@@ -16,7 +16,7 @@ function cell(id: string, text: string, extra: Partial<RecordCell> = {}):
   const at = text.indexOf("::") + 2;
   return {
     uid: u(id), key_raw: text.slice(0, at - 2), text,
-    value: text.slice(at).trimStart(), value_start: at, child_count: 0,
+    value: text.slice(at).trimStart(), value_start: at,
     ...extra,
   };
 }

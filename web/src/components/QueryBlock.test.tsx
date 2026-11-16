@@ -248,7 +248,7 @@ function bookCell(id: string, text: string,
                   extra: Partial<RecordCell> = {}): RecordCell {
   const at = text.indexOf("::") + 2;
   return { uid: uidOf(id), key_raw: text.slice(0, at - 2), text,
-           value: text.slice(at).trimStart(), value_start: at, child_count: 0,
+           value: text.slice(at).trimStart(), value_start: at,
            ...extra };
 }
 
@@ -698,6 +698,64 @@ describe("cell writes", () => {
     expect(screen.getByText("0 of 2 results")).toBeInTheDocument();
     fireEvent.change(filterBox(), { target: { value: "-status:rea" } });
     expect(screen.queryByRole("row", { name: /Book\/Beta/ })).toBeNull();
+  });
+
+  /** Renders the books, with columns that do not follow the records, and
+   * writes Alpha's status, which holds the rows in place; `resync` then
+   * answers a reconnect with `records`. */
+  async function writeAlphaStatus() {
+    stubBooks();
+    const sync = makeSync();
+    const { setSync } = renderBlock(
+      `{{query: ${BOOK} | columns: Author, Reading Status}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    const resync = async (records: QueryRecordModel[], generation: number) => {
+      stubBooks({ ...BOOKS, records, total: records.length });
+      const later = makeSync("connected", { resyncGeneration: generation });
+      later.enqueue = sync.enqueue;
+      setSync(later);
+      const n = records.length;
+      await screen.findByText(`${n} of ${n} results`);
+    };
+    return { sync, resync };
+  }
+
+  it("keeps a held row a refetch drops, marked, with its open draft", async () => {
+    const { sync, resync } = await writeAlphaStatus();
+    fireEvent.click(cellOf("Book/Alpha", "Author"));
+    fireEvent.change(editor(), { target: { value: "Xavier Q" } });
+    await resync([BETA_BOOK], 1);
+    expect(screen.getByText("Book/Alpha")).toBeInTheDocument();
+    expect(screen.getByText("no longer matches")).toBeInTheDocument();
+    expect(editor().value).toBe("Xavier Q");
+    expect(sync.sent).toHaveLength(1);
+    fireEvent.keyDown(editor(), { key: "Enter" });
+    await act(async () => { await Promise.resolve(); });
+    expect(sync.sent[1]).toEqual([expect.objectContaining({
+      op: "update_text", uid: "aauthor1", text: "Author:: Xavier Q",
+      base_text_hash: sha256Hex("Author:: Xavier") })]);
+    expect(cellOf("Book/Alpha", "Author")).toHaveTextContent("Xavier Q");
+    expect(cellOf("Book/Alpha", "Reading Status")).toHaveTextContent("Unread");
+  });
+
+  it("shows the record a later refetch returns for a held row", async () => {
+    const { resync } = await writeAlphaStatus();
+    await resync([BETA_BOOK], 1);
+    const fresh = bookRecord("p:alpha", "Book/Alpha", {
+      ...ALPHA_BOOK.cells,
+      "Reading Status": bookCell("astatus1", "Reading Status:: Reading") });
+    await resync([fresh, BETA_BOOK], 2);
+    expect(cellOf("Book/Alpha", "Reading Status")).toHaveTextContent("Reading");
+    expect(screen.queryByText("no longer matches")).toBeNull();
+  });
+
+  it("lets a held row go when the view changes", async () => {
+    const { resync } = await writeAlphaStatus();
+    await resync([BETA_BOOK], 1);
+    fireEvent.change(filterBox(), { target: { value: "book" } });
+    expect(screen.queryByText("Book/Alpha")).toBeNull();
+    expect(screen.getByText("Book/Beta")).toBeInTheDocument();
   });
 
   it("an Undo undoes its own write when its press commits another cell", async () => {

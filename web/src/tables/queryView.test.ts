@@ -9,8 +9,8 @@ import {
   canonicalTitleOf, orderIdxOf, pageIdOf, uidOf,
 } from "../test-helpers";
 import {
-  inverseCellWrite, patchRecord, planQuerySave, queryColumns, queryDefaults,
-  restoreCell, shownRows, writeMessage,
+  holdRecords, inverseCellWrite, patchRecord, planQuerySave, queryColumns,
+  queryDefaults, restoreCell, shownRows, writeMessage,
 } from "./queryView";
 import type { ViewFields } from "./viewState";
 
@@ -21,7 +21,7 @@ function cell(id: string, text: string, extra: Partial<RecordCell> = {}):
   const at = text.indexOf("::") + 2;
   return {
     uid: u(id), key_raw: text.slice(0, at - 2), text,
-    value: text.slice(at).trimStart(), value_start: at, child_count: 0,
+    value: text.slice(at).trimStart(), value_start: at,
     ...extra,
   };
 }
@@ -115,12 +115,52 @@ describe("shownRows", () => {
     expect(matching).toBe(1);
   });
 
+  it("shows a frozen id the records lack from what is held, marked", () => {
+    const { rows, matching } = shownRows([B], cols, view(),
+      ["p:a", "p:b"], new Map([["p:a", A]]));
+    expect(rows.map((r) => [r.record, r.stale])).toEqual([
+      [A, true], [B, false]]);
+    expect(matching).toBe(1);
+  });
+
+  it("shows nothing held once the view is not frozen", () => {
+    const { rows } = shownRows([B], cols, view(), null, new Map([["p:a", A]]));
+    expect(rows.map((r) => r.record.key)).toEqual(["p:b"]);
+  });
+
   it("matches on the Source of a line record", () => {
     const line = record("l:1", "a line", {}, {
       kind: "line", uid: u("l1"), page_title: canonicalTitleOf("Reading List"),
     });
     const { rows } = shownRows([A, line], cols, view({ filter: "source:reading" }), null);
     expect(rows.map((r) => r.record.key)).toEqual(["l:1"]);
+  });
+});
+
+describe("holdRecords", () => {
+  const A2 = record("p:a", "Alpha", {
+    "Reading Status": cell("s1", "Reading Status:: Unread") });
+  const none = new Map<string, QueryRecordModel>();
+
+  it("keeps the last record of a frozen id the refetch dropped", () => {
+    expect(holdRecords([A, B], none, [B], ["p:a", "p:b"]))
+      .toEqual(new Map([["p:a", A]]));
+  });
+
+  it("keeps holding it through later refetches", () => {
+    const held = new Map([["p:a", A]]);
+    expect(holdRecords([B], held, [B], ["p:a", "p:b"])).toEqual(held);
+  });
+
+  it("lets go of an id the refetch returns again", () => {
+    expect(holdRecords([B], new Map([["p:a", A]]), [A2, B], ["p:a", "p:b"]))
+      .toEqual(none);
+  });
+
+  it("holds only frozen ids, and nothing while unfrozen", () => {
+    expect(holdRecords([A, B], none, [], ["p:b"]))
+      .toEqual(new Map([["p:b", B]]));
+    expect(holdRecords([A, B], new Map([["p:a", A]]), [], null)).toEqual(none);
   });
 });
 
@@ -208,7 +248,7 @@ describe("cell write bookkeeping", () => {
     }]);
     expect(next.cells.Format).toEqual({
       uid: u("n2"), key_raw: "Format", text: "Format:: Kindle",
-      value: "Kindle", value_start: 8, child_count: 0,
+      value: "Kindle", value_start: 8,
     });
     expect(next.insert_before_order_idx).toBe(5);
     const tail = patchRecord(record("p:d", "D", {}), "Format", [{

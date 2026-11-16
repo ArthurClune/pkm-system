@@ -4493,8 +4493,7 @@
           },
           "child_count": {
             "type": "integer",
-            "title": "Child Count",
-            "default": 0
+            "title": "Child Count"
           }
         },
         "type": "object",

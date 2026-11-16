@@ -1001,6 +1001,15 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   white-space: nowrap; color: var(--color-text-secondary);
   background: var(--color-bg-subtle); border: 1px solid var(--color-border);
   border-radius: var(--radius-pill); }
+/* media in a table cell or query card: one line that reads as a link */
+.cell-media-label { display: inline; padding: 0; border: none;
+  background: none; color: var(--color-link); cursor: pointer;
+  text-align: start; overflow-wrap: anywhere; }
+.cell-media-label:hover { text-decoration: underline; }
+span.cell-media-label { color: var(--color-text-secondary); cursor: default; }
+span.cell-media-label:hover { text-decoration: none; }
+.cell-media-label:focus-visible {
+  outline: 2px solid var(--color-link); outline-offset: 1px; }
 .query-cards { display: grid; gap: 10px; margin: 4px 0;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
 .query-card { padding: 8px 10px; border: 1px solid var(--color-border);

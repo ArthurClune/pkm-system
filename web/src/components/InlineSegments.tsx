@@ -5,12 +5,16 @@
 // TodoCheckbox, BlueskyEmbed, MermaidDiagram, QueryBlock, GoodlinksLink) that
 // read React context, fetch, or navigate, so it's a shell rather than a pure
 // rendering decision.
+import { useContext } from "react";
+import { CellMediaContext } from "../contexts";
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
 import { AssetLink } from "./AssetLink";
 import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
+import { cellMedia } from "./cellMediaCore";
+import { CellMediaLabel } from "./CellMediaLabel";
 import { CodeBlock } from "./CodeBlock";
 import {
   isDeferredPdfHref, isPdfHref, isSafeHref, pdfLabelFromHref,
@@ -34,6 +38,9 @@ export function InlineSegments({ segments, depth = 0 }:
 }
 
 function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
+  const inCell = useContext(CellMediaContext) !== null;
+  const media = inCell ? cellMedia(seg) : null;
+  if (media !== null) return <CellMediaLabel media={media} />;
   switch (seg.kind) {
     case "text":
       return <>{seg.text}</>;

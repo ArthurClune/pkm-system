@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
 // The table both query tables and plain {{table}} blocks render: sortable
 // headers, one cell editor at a time driven by stepEditor, and the rows
-// marked stale after an edit. What a write does is the caller's: onWrite
-// gets the row, the column and the trimmed value.
+// marked stale after an edit. Each editable cell is a tab stop that Enter
+// opens. What a write does is the caller's: onWrite gets the row, the column
+// and the trimmed value.
 import { useEffect, useLayoutEffect, useRef, useState,
          type ReactNode } from "react";
 import { neighbourCell, stepEditor, type CellRef, type EditorEffect,
@@ -60,6 +61,10 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
   // The rows open in the editor, by id: a write lands on its row even after
   // a refetch has dropped that row from `rows`.
   const openRows = useRef(new Map<string, R>());
+  const tableRef = useRef<HTMLTableElement>(null);
+  // A cell a key closed (Enter, Esc, Tab off either end) takes focus back,
+  // so a keyboard reader keeps their place; a click or blur leaves it be.
+  const refocus = useRef<CellRef | null>(null);
 
   const byId = new Map(rows.map((r) => [rowId(r), r]));
   const byKey = new Map(columns.map((c) => [c.key, c]));
@@ -88,6 +93,14 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
     }
   };
 
+  const closeByKey = (event: EditorEvent) => {
+    const cur = editorRef.current;
+    dispatch(event);
+    if (cur.kind === "editing" && editorRef.current.kind === "idle") {
+      refocus.current = cur.cell;
+    }
+  };
+
   const open = (r: R, c: Column) => {
     const id = rowId(r);
     openRows.current.set(id, r);
@@ -105,9 +118,18 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
       openRows.current.set(cell.row, r);
       dispatch({ kind: "tab", dir, next: { cell, value: rawValue(r, c) } });
     } else {
-      dispatch({ kind: "tab", dir, next: null });
+      closeByKey({ kind: "tab", dir, next: null });
     }
   };
+
+  useLayoutEffect(() => {
+    const cell = refocus.current;
+    refocus.current = null;
+    if (cell === null) return;
+    const row = rows.findIndex((r) => rowId(r) === cell.row);
+    const col = columns.findIndex((c) => c.key === cell.col);
+    tableRef.current?.tBodies[0]?.rows[row]?.cells[col]?.focus();
+  });
 
   // An open cell that stops rendering (a refetch dropped its row, or its
   // column went) commits, as a click elsewhere does.
@@ -163,12 +185,22 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
     open(r, c);
   };
 
+  // The cell's own key only: Enter on a link inside it follows the link,
+  // and the open editor's keys are CellTextarea's.
+  const onCellKeyDown = (e: React.KeyboardEvent, r: R, c: Column) => {
+    if (e.target !== e.currentTarget || e.key !== "Enter") return;
+    if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    open(r, c);
+  };
+
   const isOpen = (id: string, c: Column) => editor.kind === "editing"
     && editor.cell.row === id && editor.cell.col === c.key;
 
   return (
     <div className="data-table-scroll" {...island}>
-      <table className="data-table">
+      <table ref={tableRef} className="data-table">
         <thead>
           <tr>
             {columns.map((c) => {
@@ -208,7 +240,10 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                     .filter(Boolean).join(" ");
                   return (
                     <td key={c.key} className={classes || undefined}
+                        tabIndex={editable(c) ? 0 : undefined}
                         onClick={editable(c) ? (e) => onCellClick(e, r, c)
+                          : undefined}
+                        onKeyDown={editable(c) ? (e) => onCellKeyDown(e, r, c)
                           : undefined}>
                       <div className="table-cell">
                         {c.editable && isOpen(id, c) && editor.kind === "editing"
@@ -216,8 +251,8 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                               key={`${id}\u0000${c.key}`}
                               label={c.label} draft={editor.draft}
                               onDraft={(draft) => dispatch({ kind: "input", draft })}
-                              onCommit={() => dispatch({ kind: "commit" })}
-                              onCancel={() => dispatch({ kind: "cancel" })}
+                              onCommit={() => closeByKey({ kind: "commit" })}
+                              onCancel={() => closeByKey({ kind: "cancel" })}
                               onOutside={leave(id, c.key)}
                               onTab={tab}
                               hint={cellHint?.(r, c)}

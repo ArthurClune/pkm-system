@@ -1021,6 +1021,8 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .data-table td { background: var(--color-bg-surface); }
 .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table td.editable { cursor: text; }
+.data-table td.editable:focus-visible { outline: 2px solid var(--color-link);
+  outline-offset: -2px; }
 /* the header is a button for keyboard access; it fills the th. The ring
  * sits inside, or the scroll box clips it on the edge columns */
 .data-table-sort { display: flex; align-items: center; gap: 4px; width: 100%;

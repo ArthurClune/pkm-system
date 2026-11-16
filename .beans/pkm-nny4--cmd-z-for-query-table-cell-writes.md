@@ -1,11 +1,11 @@
 ---
 # pkm-nny4
 title: Cmd-Z for query table cell writes
-status: todo
+status: scrapped
 type: task
 priority: normal
 created_at: 2026-11-15T19:35:21Z
-updated_at: 2026-11-16T10:07:33Z
+updated_at: 2026-11-16T10:50:52Z
 parent: pkm-l79g
 ---
 
@@ -21,3 +21,8 @@ A fix needs a history entry that can be undone in place (no navigation) with a h
 
 
 Checked 2026-11-16: the gap is worse than a missing shortcut. After a query cell commits, focus leaves the textarea, so UndoRedoKeys' window handler runs performUndo on the outline history: Cmd-Z undoes the reader's previous outline edit, which may be on another page and navigate there, rather than doing nothing.
+
+
+## Reasons for Scrapping
+
+Arthur, 2026-11-16: leave it. Cmd-Z after a query-cell write leaves the table's value alone and undoes the reader's last outline edit in this tab, navigating to its page if needed; Cmd-Shift-Z redoes it, so nothing is lost and the jump makes it visible. A query write is undone through its notice's Undo. Not worth a history redesign or a Cmd-Z guard.

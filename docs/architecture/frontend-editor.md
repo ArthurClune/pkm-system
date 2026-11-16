@@ -424,7 +424,7 @@ The two hosts differ in where a write lands:
 | A write goes through | `onEditInBlock`, as one outline undo step | `useCellWrites`: `enqueue` scoped to the record's page, and `applyLocal` on that page's open session |
 | Undone by | Cmd-Z, like any outline edit | the `WriteNotice`'s Undo, which sends the inverse captured with that write (`inverseCellWrite`). Cmd-Z does not reach it |
 | Write notice | none: the changed block is in view, and a notice's Undo could only undo the newest history entry | one per write, naming the key, value and page |
-| A dropped write | handled by the outline, like any edit | reverts the cell and names the failure when the ticket's `delivered` fails. A `settled` failure alone changes nothing, because the queue still delivers an op the replica did not reject |
+| A dropped write | like any outline edit ([a batch the server rejects](sync-recovery.md#a-batch-the-server-rejects)) | reverts the cell and names the failure when the ticket's `delivered` fails. A `settled` failure alone changes nothing, because the queue still delivers an op the replica did not reject ([a local write fails](sync-recovery.md#a-local-write-fails)) |
 | A cell opens when | the outline is editable | `BlockEditContext` is present and sync is `connected` ([online-only](sync-and-offline.md#online-only-features)) |
 
 A table's root spreads `island` (`tables/island.ts`), which stops clicks and

@@ -78,6 +78,11 @@ test("media in table cells is a label that opens full screen or goes to its line
   const dialog = page.getByRole("dialog", { name: "sample.pdf" });
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("canvas").first()).toBeVisible();
+  // The frame fits the overlay and a wheel scrolls it to the later pages.
+  const frame = dialog.locator(".pdf-frame");
+  await frame.hover();
+  await page.mouse.wheel(0, 800);
+  await expect.poll(() => frame.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(label).toBeFocused();

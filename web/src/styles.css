@@ -457,6 +457,7 @@ button { font: inherit; }
 .copy-notice { white-space: pre-wrap; }
 .editor-notice { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px;
   color: var(--color-text-secondary); font-size: 14px; }
+.error-screen, .not-found { padding: 32px; }
 
 /* == Top bar == */
 /* spans the main pane, houses the search bar + the page ("...") menu */
@@ -540,6 +541,38 @@ button { font: inherit; }
  * onto two lines. The timestamps item flips its label instead, so every item
  * starts at the padding edge. */
 
+/* == Right sidebar == */
+.sidebar { width: 33.333%; flex-shrink: 0; border-left: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar); padding: 16px; overflow-y: auto; height: 100vh;
+  position: sticky; top: 0; }
+.sidebar-panel { border-bottom: 1px solid var(--color-border); padding-bottom: 12px;
+  margin-bottom: 12px; }
+.sidebar-panel-header { display: flex; justify-content: space-between;
+  align-items: baseline; }
+.sidebar-panel-title { font-size: 17px; margin: 0 0 8px; }
+.panel-close { background: none; border: none; cursor: pointer;
+  color: var(--color-text-muted); font-size: 16px; }
+.panel-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.hamburger { display: none; position: fixed;
+  top: calc(var(--app-banner-height) + 10px); left: 10px; z-index: var(--z-hamburger);
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 4px 8px; cursor: pointer; color: var(--color-text); }
+.hamburger:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+
+/* == Theme toggle == */
+.theme-toggle { display: flex; align-items: center; gap: 4px; }
+
+/* == Sync == */
+.ws-banner { background: var(--color-banner-bg); color: var(--color-banner-text);
+  text-align: center; padding: 4px 8px;
+  font-size: 13px; }
+.dropped-draft p { margin: 2px 0; }
+.dropped-draft-text { white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: var(--font-mono); }
+.dropped-draft textarea { width: 100%; font: inherit; }
+.dropped-draft button { margin: 2px 4px; }
+
 /* == Outline rows == */
 /* line-height set here (not on .block-text) so the edit-mode textarea
  * inherits the same value and the row doesn't jump on focus */
@@ -617,6 +650,121 @@ h1.block-text, .block-input.heading-1 { font-size: 1.4rem; font-weight: 600; }
 h2.block-text, .block-input.heading-2 { font-size: 1.25rem; font-weight: 600; }
 h3.block-text, .block-input.heading-3 { font-size: 1.1rem; font-weight: 600; }
 
+/* == Editor == */
+.block-input { flex: 1; width: 100%; font: inherit; color: inherit;
+  line-height: inherit; background: transparent; border: none; outline: none;
+  resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
+/* Native auto-grow: where supported, the browser resizes the
+ * textarea to fit its content with no JS measure-and-set, and useBlockDraft
+ * skips that effect entirely (see the `supportsFieldSizing` check there).
+ * Feature-detected, not browser-sniffed, so this and the JS fallback can
+ * never disagree about which one is active. */
+@supports (field-sizing: content) {
+  .block-input { field-sizing: content; }
+}
+/* A block that renders as one code fence or display-math block (editsAsCode)
+ * edits in .code-block's font, so a column typed here is the column shown. */
+.block-input.code-input { font-family: var(--font-mono);
+  font-size: var(--font-size-code); overflow-wrap: anywhere; }
+.block-row.focused { background: var(--color-focus-bg); }
+/* Multi-block selection (Shift+Arrow) highlight. The tree container takes focus
+ * to own the keyboard while selecting, but shouldn't show its own outline. */
+.block-row.selected { background: var(--color-selection-bg); }
+.block-tree:focus { outline: none; }
+.block-text { cursor: text; min-height: 1.5em; }
+
+/* == Autocomplete == */
+.block-input-wrap { position: relative; flex: 1; min-width: 0; }
+/* The /upload file picker is driven programmatically; keep it out of layout. */
+.upload-input { display: none; }
+.ac-popup { position: absolute; top: 100%; left: 0; z-index: var(--z-editor-popup);
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 240px;
+  max-height: 40vh; overflow-y: auto; }
+.ac-row { padding: 4px 10px; cursor: pointer; }
+.ac-row.selected { background: var(--color-ac-selected-bg); }
+
+/* == Date picker == */
+.date-picker { position: absolute; top: 100%; left: 0; z-index: var(--z-editor-popup);
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
+.date-picker-header { display: flex; align-items: center;
+  justify-content: space-between; padding: 0 2px 6px; font-weight: 600; }
+/* no :focus-visible ring on the picker's buttons, unlike every other bare
+ * button here: DatePickerPopup is mouse-only by design, its buttons
+ * preventDefault on mousedown so they never take focus, and Tab inside a block
+ * indents rather than moving focus — so the ring would be unreachable. */
+.date-picker-header button { background: none; border: none; cursor: pointer;
+  font: inherit; color: var(--color-text); padding: 2px 8px; }
+.date-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.date-picker-dow { text-align: center; font-size: 0.75rem; padding: 2px 0; }
+.date-picker-day { background: none; border: none; cursor: pointer; font: inherit;
+  color: var(--color-text); padding: 4px 0; text-align: center; border-radius: 4px; }
+.date-picker-day:hover { background: var(--color-ac-selected-bg); }
+.date-picker-day.outside { opacity: 0.45; }
+.date-picker-day.today { font-weight: 600; }
+
+/* == Block menu == */
+.block-menu { position: fixed; z-index: var(--z-popover);
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 200px;
+  padding: 4px 0; display: flex; flex-direction: column; }
+.block-menu-item { display: block; width: 100%; text-align: left;
+  background: none; border: none; padding: 5px 12px; cursor: pointer;
+  font: inherit; color: var(--color-text); }
+.block-menu-item:hover:not(:disabled) { background: var(--color-ac-selected-bg); }
+.block-menu-item:disabled { opacity: 0.5; cursor: default; }
+.block-menu-item:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.block-menu-group { padding: 7px 12px 2px; color: var(--color-text-muted);
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; }
+.block-menu-item-check { display: inline-block; width: 1.25em; }
+
+/* == Empty page == */
+.empty-page { display: block; width: 100%; text-align: left; color: var(--color-text-muted);
+  background: none; border: none; padding: 8px 0 24px; cursor: text;
+  font: inherit; }
+.empty-page:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+
+/* == Keyboard bar == */
+/* rendered only on an iPhone (by user agent, not width), pinned to the top
+ * of the on-screen keyboard. KeyboardBar sets `bottom` to the keyboard's
+ * height. Keys are the shared pill, sized
+ * for a thumb. A touch on a key must not start iOS text selection over the
+ * labels, and two quick taps ("[" twice for a link) must not read as a
+ * double-tap zoom. */
+.keyboard-bar { position: fixed; left: 0; right: 0; bottom: 0;
+  z-index: var(--z-keyboard-bar);
+  display: flex; gap: 6px; padding: 6px 8px;
+  background: var(--color-bg-surface); border-top: 1px solid var(--color-border);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  touch-action: manipulation; }
+.keyboard-bar-key { flex: 1; min-width: 0; min-height: 36px; padding: 0;
+  font-size: 18px; }
+
+/* == Drag and drop == */
+.drop-indicator {
+  position: absolute;
+  right: 0;
+  height: 0;
+  border-top: 2px solid var(--color-accent);
+  pointer-events: none;
+  z-index: var(--z-drop-indicator);
+}
+/* iPadOS Safari routes presses (touch AND trackpad pointer) through the
+ * touch gesture system: without these, a press on the handle is claimed by
+ * scroll panning / text selection / the long-press callout and dragstart
+ * never fires. */
+.bullet[draggable="true"] { cursor: grab; position: relative;
+  touch-action: none; -webkit-touch-callout: none;
+  -webkit-user-select: none; user-select: none; }
+/* Invisible enlarged hit area for the 13px dot; biased away from the left
+ * edge so it doesn't steal the chevron's clicks. */
+.bullet[draggable="true"]::before { content: ""; position: absolute;
+  /* inset is from the padding box; the 4px border means -9px = 5px past the
+   * outer edge (left kept to 2px so the chevron isn't overlapped much) */
+  inset: -9px -9px -9px -6px; }
+
 /* == Inline content == */
 a.tag:hover { color: var(--color-tag); text-decoration: none;
   border-color: var(--color-border); }
@@ -661,23 +809,6 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .toc-link { color: var(--color-text-secondary); text-decoration: none; }
 .toc-link:hover { text-decoration: underline; }
 .toc-empty { color: var(--color-text-muted); font-style: italic; }
-
-/* == Help and settings pages == */
-/* renders docs/keyboard.md (help/parseHelpMarkdown.ts); prose lines are
- * capped for readability, tables stay full width to fit their columns */
-.help-page h1, .help-page h2, .help-page h3, .help-page p { max-width: 640px; }
-.help-page h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 16px; }
-.help-page h2 { font-size: 20px; font-weight: 600; margin: 32px 0 10px; }
-.help-page h3 { font-size: 16px; font-weight: 600; color: var(--color-text-secondary); margin: 20px 0 8px; }
-.help-page p { margin: 0 0 14px; color: var(--color-text-secondary); }
-.help-page .roam-table-scroll { margin: 4px 0 20px; }
-/* /settings: a plain list of sections, each free to grow its
- * own controls later -- same prose-width convention as .help-page. */
-.settings-page { max-width: 640px; }
-.settings-section { margin: 24px 0; }
-.settings-section h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; }
-.settings-section p { margin: 0; color: var(--color-text-secondary); }
-p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6px; }
 
 /* == Block references and highlights == */
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;
@@ -844,92 +975,6 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .hljs-addition { color: var(--hljs-inserted-fg); background-color: var(--hljs-inserted-bg); }
 .hljs-deletion { color: var(--hljs-deleted-fg); background-color: var(--hljs-deleted-bg); }
 
-/* == References == */
-.backlinks, .unlinked { margin-top: 36px; border-top: 1px solid var(--color-border); padding-top: 12px; }
-.section-header { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
-  color: var(--color-text-secondary); margin: 0 0 8px; }
-.section-header.collapsible { cursor: pointer; user-select: none; }
-/* Collapsible section headers toggle through a real button, which
- * must keep the header's uppercase letter-spaced type: font: inherit carries
- * neither text-transform nor letter-spacing. display: block + width: 100%
- * spans the button across the header the same way .page-title-edit does --
- * without it the button hugs just the chevron+text, so a click anywhere else
- * in the header row (the old <h2 onClick>'s full hit area) silently no-ops. */
-.section-toggle { font: inherit; color: inherit; letter-spacing: inherit;
-  text-transform: inherit; background: none; border: none; padding: 0;
-  margin: 0; display: block; width: 100%; text-align: left; cursor: pointer; }
-.section-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-.section-header .chevron { display: inline-block; transform: rotate(90deg); }
-.section-header .chevron.closed { transform: rotate(0deg); }
-.group-title { font-size: 15px; margin: 12px 0 4px; }
-/* cards lean on the subtle bg alone; the transparent border reserves space
- * so a hover border (if ever added) wouldn't shift layout */
-.backlink-item, .query-item { margin: 6px 0; padding: 6px 10px;
-  border: 1px solid transparent; border-radius: var(--radius-card);
-  background: var(--color-bg-subtle); }
-.backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
-.unlinked-link-row { display: flex; align-items: flex-start; gap: 8px; }
-.unlinked-link-row .backlink-text { flex: 1; min-width: 0; }
-.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 10px; }
-.unlinked-item-error { margin: 4px 0 0; }
-
-/* == Linked-references filter == */
-.section-header .filter-toggle { margin-left: 10px; font-size: 12px;
-  text-transform: none; letter-spacing: normal; padding: 1px 10px; }
-.filter-panel { margin: 8px 0 12px; padding: 8px 10px;
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card); }
-.filter-active { display: flex; flex-wrap: wrap; align-items: center;
-  gap: 6px; margin-bottom: 8px; }
-.filter-candidates { display: flex; flex-wrap: wrap; gap: 6px; }
-.filter-chip { font-size: 13px; padding: 1px 10px; border-radius: 999px;
-  background: var(--color-bg); border: 1px solid var(--color-border-subtle);
-  color: var(--color-text-secondary); cursor: pointer; }
-.filter-chip:hover { border-color: var(--color-border-input);
-  color: var(--color-text); }
-.filter-chip.included { background: var(--color-selected-bg);
-  border-color: var(--color-border-input); color: var(--color-text); }
-.filter-chip.excluded { text-decoration: line-through; opacity: 0.7; }
-.filter-clear { font-size: 12px; background: none; border: none;
-  color: var(--color-link-ext); cursor: pointer; }
-.filter-loading, .filter-empty, .filter-no-match { font-size: 13px;
-  color: var(--color-text-secondary); }
-
-/* == References, continued == */
-.breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
-.query-crumb { color: inherit; text-decoration: none; cursor: pointer; }
-.query-crumb:hover { color: var(--color-link); text-decoration: underline; }
-/* padding comes from .btn-secondary; this class is layout only */
-.show-more { margin-top: 8px; }
-
-/* == Journal == */
-/* No `content-visibility: auto` here. The Journal never unmounts a loaded
- * day, so skipping the off-screen ones looks like the obvious win -- it was
- * measured on scenario I and is a small, repeatable LOSS (see
- * tooling/perf/baselines/2026-09-02-muka): a day is plain text and cheap to
- * lay out, while every section crossing the relevance boundary forces its
- * own layout and style recalc, so 6-8 layouts per scroll became 31-45 and
- * browser CPU rose ~1 point on both the standard and a 4x-heavier journal.
- * Re-measure before trying again; the portals it needs already exist. */
-.journal-day { margin-bottom: 40px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-subtle); }
-.journal-sentinel { height: 1px; }
-
-/* == Search == */
-/* results dropdown, anchored under the top-bar search input */
-.search-results { position: absolute; top: 100%; right: 0; z-index: var(--z-dropdown);
-  width: min(480px, 80vw); margin: 4px 0 0; padding: 4px 0; list-style: none;
-  max-height: 60vh; overflow-y: auto;
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
-.search-result { padding: 6px 16px; cursor: pointer; display: flex;
-  flex-direction: column; }
-.search-create-error { padding: 6px 16px; color: var(--color-error); }
-.search-result.selected { background: var(--color-selected-bg); }
-.result-page { font-weight: 600; }
-.result-snippet { font-size: 13px; color: var(--color-text-secondary); }
-.result-snippet mark { background: var(--color-highlight-bg); padding: 0 1px; }
-
 /* == Query blocks == */
 .query-block { border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 8px 12px;
   margin: 4px 0; }
@@ -1021,208 +1066,107 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
   white-space: nowrap; }
 .table-edit-text { margin-left: auto; }
 
-/* == Right sidebar == */
-.sidebar { width: 33.333%; flex-shrink: 0; border-left: 1px solid var(--color-border);
-  background: var(--color-bg-sidebar); padding: 16px; overflow-y: auto; height: 100vh;
-  position: sticky; top: 0; }
-.sidebar-panel { border-bottom: 1px solid var(--color-border); padding-bottom: 12px;
-  margin-bottom: 12px; }
-.sidebar-panel-header { display: flex; justify-content: space-between;
-  align-items: baseline; }
-.sidebar-panel-title { font-size: 17px; margin: 0 0 8px; }
-.panel-close { background: none; border: none; cursor: pointer;
-  color: var(--color-text-muted); font-size: 16px; }
-.panel-close:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-.hamburger { display: none; position: fixed;
-  top: calc(var(--app-banner-height) + 10px); left: 10px; z-index: var(--z-hamburger);
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  padding: 4px 8px; cursor: pointer; color: var(--color-text); }
-.hamburger:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+/* == References == */
+.backlinks, .unlinked { margin-top: 36px; border-top: 1px solid var(--color-border); padding-top: 12px; }
+.section-header { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--color-text-secondary); margin: 0 0 8px; }
+.section-header.collapsible { cursor: pointer; user-select: none; }
+/* Collapsible section headers toggle through a real button, which
+ * must keep the header's uppercase letter-spaced type: font: inherit carries
+ * neither text-transform nor letter-spacing. display: block + width: 100%
+ * spans the button across the header the same way .page-title-edit does --
+ * without it the button hugs just the chevron+text, so a click anywhere else
+ * in the header row (the old <h2 onClick>'s full hit area) silently no-ops. */
+.section-toggle { font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; background: none; border: none; padding: 0;
+  margin: 0; display: block; width: 100%; text-align: left; cursor: pointer; }
+.section-toggle:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+.section-header .chevron { display: inline-block; transform: rotate(90deg); }
+.section-header .chevron.closed { transform: rotate(0deg); }
+.group-title { font-size: 15px; margin: 12px 0 4px; }
+/* cards lean on the subtle bg alone; the transparent border reserves space
+ * so a hover border (if ever added) wouldn't shift layout */
+.backlink-item, .query-item { margin: 6px 0; padding: 6px 10px;
+  border: 1px solid transparent; border-radius: var(--radius-card);
+  background: var(--color-bg-subtle); }
+.backlink-item:hover, .query-item:hover { background: var(--color-selected-bg); }
+.unlinked-link-row { display: flex; align-items: flex-start; gap: 8px; }
+.unlinked-link-row .backlink-text { flex: 1; min-width: 0; }
+.reference-link-button { flex-shrink: 0; font-size: 12px; padding: 1px 10px; }
+.unlinked-item-error { margin: 4px 0 0; }
+.breadcrumbs { font-size: 12px; color: var(--color-text-muted); margin-bottom: 2px; }
+.query-crumb { color: inherit; text-decoration: none; cursor: pointer; }
+.query-crumb:hover { color: var(--color-link); text-decoration: underline; }
+/* padding comes from .btn-secondary; this class is layout only */
+.show-more { margin-top: 8px; }
 
-/* == Theme toggle == */
-.theme-toggle { display: flex; align-items: center; gap: 4px; }
+/* == Linked-references filter == */
+.section-header .filter-toggle { margin-left: 10px; font-size: 12px;
+  text-transform: none; letter-spacing: normal; padding: 1px 10px; }
+.filter-panel { margin: 8px 0 12px; padding: 8px 10px;
+  background: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-card); }
+.filter-active { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 6px; margin-bottom: 8px; }
+.filter-candidates { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chip { font-size: 13px; padding: 1px 10px; border-radius: 999px;
+  background: var(--color-bg); border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary); cursor: pointer; }
+.filter-chip:hover { border-color: var(--color-border-input);
+  color: var(--color-text); }
+.filter-chip.included { background: var(--color-selected-bg);
+  border-color: var(--color-border-input); color: var(--color-text); }
+.filter-chip.excluded { text-decoration: line-through; opacity: 0.7; }
+.filter-clear { font-size: 12px; background: none; border: none;
+  color: var(--color-link-ext); cursor: pointer; }
+.filter-loading, .filter-empty, .filter-no-match { font-size: 13px;
+  color: var(--color-text-secondary); }
 
-/* == Responsive == */
-/* the right sidebar overlays under 900px */
-@media (max-width: 900px) {
-  .sidebar { position: fixed; right: 0; top: var(--app-banner-height);
-    height: calc(100vh - var(--app-banner-height)); width: 340px;
-    box-shadow: -4px 0 16px rgba(var(--shadow-rgb), 0.2);
-    z-index: var(--z-sidebar-overlay); }
-}
+/* == Search == */
+/* results dropdown, anchored under the top-bar search input */
+.search-results { position: absolute; top: 100%; right: 0; z-index: var(--z-dropdown);
+  width: min(480px, 80vw); margin: 4px 0 0; padding: 4px 0; list-style: none;
+  max-height: 60vh; overflow-y: auto;
+  background: var(--color-bg-surface); border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-panel); box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); }
+.search-result { padding: 6px 16px; cursor: pointer; display: flex;
+  flex-direction: column; }
+.search-create-error { padding: 6px 16px; color: var(--color-error); }
+.search-result.selected { background: var(--color-selected-bg); }
+.result-page { font-weight: 600; }
+.result-snippet { font-size: 13px; color: var(--color-text-secondary); }
+.result-snippet mark { background: var(--color-highlight-bg); padding: 0 1px; }
 
-/* phone (<600px): nav behind a hamburger; view-only by construction */
-@media (max-width: 600px) {
-  .hamburger { display: block; }
-  /* Closed, the drawer is only translated off-screen, which leaves every link
-   * and button in it tabbable -- and they are the page's first tab stops.
-   * visibility:hidden removes the whole subtree from the focus
-   * order; it is transitioned so the slide-out stays visible (a visibility
-   * transition holds "visible" for the duration when moving to hidden, and
-   * applies immediately when moving to visible). Scoped to this breakpoint on
-   * purpose: at every wider width the nav is permanent and `navOpen` is
-   * meaningless. */
-  .left-nav { position: fixed; left: 0; top: var(--app-banner-height);
-    height: calc(100vh - var(--app-banner-height)); z-index: var(--z-phone-nav);
-    transform: translateX(-100%); visibility: hidden;
-    transition: transform 0.15s, visibility 0.15s; }
-  .left-nav.open { transform: translateX(0); visibility: visible; }
-  /* the desktop collapse toggle must not fight the hamburger overlay here;
-   * its button is hidden too, since collapse has no effect on phones */
-  .left-nav.collapsed { display: flex; }
-  .sidebar-toggle-button { display: none; }
-  /* extra left padding clears the fixed hamburger button */
-  .top-bar { width: auto; margin: 0; padding: 8px 16px 8px 52px; }
-  .top-bar-error { width: auto; margin: 0 16px 8px; padding: 0; }
-  .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
-    border: none; border-radius: 0; box-shadow: none; }
-  .sidebar { width: 100vw; }
-  /* search field: .search-field is the flex item that actually
-   * overflowed -- with no width of its own, a flex item's default min-width
-   * sizes to its content, so it never shrank below the focused input's fixed
-   * 320px, pushing the field past 320/390px viewports. min-width:
-   * 0 lets the flex algorithm squeeze it into whatever room the title and
-   * buttons leave. Desktop's fixed widths on .top-bar-search-input are
-   * untouched; they just act as a cap the flex item can no longer be forced
-   * past. Losing that growth cue also loses its only focus signal here
-   * (.top-bar-search-input:focus-visible normally opts out), so
-   * the themed ring the field family carries everywhere else comes back. */
-  .search-field { min-width: 0; }
-  .top-bar-search-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-  /* A ~68px gutter is too much of a phone line, and the page-menu toggle is
-   * a desktop affordance. */
-  .block-stamp { display: none; }
-}
-
-/* == Carry-forwards == */
-.error-screen, .not-found { padding: 32px; }
+/* == Journal == */
+/* No `content-visibility: auto` here. The Journal never unmounts a loaded
+ * day, so skipping the off-screen ones looks like the obvious win -- it was
+ * measured on scenario I and is a small, repeatable LOSS (see
+ * tooling/perf/baselines/2026-09-02-muka): a day is plain text and cheap to
+ * lay out, while every section crossing the relevance boundary forces its
+ * own layout and style recalc, so 6-8 layouts per scroll became 31-45 and
+ * browser CPU rose ~1 point on both the standard and a 4x-heavier journal.
+ * Re-measure before trying again; the portals it needs already exist. */
+.journal-day { margin-bottom: 40px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border-subtle); }
+.journal-sentinel { height: 1px; }
 .journal-status { min-height: 1.5em; color: var(--color-text-muted); margin: 4px 0; }
 
-/* == Sync == */
-.ws-banner { background: var(--color-banner-bg); color: var(--color-banner-text);
-  text-align: center; padding: 4px 8px;
-  font-size: 13px; }
-.dropped-draft p { margin: 2px 0; }
-.dropped-draft-text { white-space: pre-wrap; overflow-wrap: anywhere;
-  font-family: var(--font-mono); }
-.dropped-draft textarea { width: 100%; font: inherit; }
-.dropped-draft button { margin: 2px 4px; }
-
-/* == Editor == */
-.block-input { flex: 1; width: 100%; font: inherit; color: inherit;
-  line-height: inherit; background: transparent; border: none; outline: none;
-  resize: none; padding: 0; margin: 0; overflow: hidden; display: block; }
-/* Native auto-grow: where supported, the browser resizes the
- * textarea to fit its content with no JS measure-and-set, and useBlockDraft
- * skips that effect entirely (see the `supportsFieldSizing` check there).
- * Feature-detected, not browser-sniffed, so this and the JS fallback can
- * never disagree about which one is active. */
-@supports (field-sizing: content) {
-  .block-input { field-sizing: content; }
-}
-/* A block that renders as one code fence or display-math block (editsAsCode)
- * edits in .code-block's font, so a column typed here is the column shown. */
-.block-input.code-input { font-family: var(--font-mono);
-  font-size: var(--font-size-code); overflow-wrap: anywhere; }
-.block-row.focused { background: var(--color-focus-bg); }
-/* Multi-block selection (Shift+Arrow) highlight. The tree container takes focus
- * to own the keyboard while selecting, but shouldn't show its own outline. */
-.block-row.selected { background: var(--color-selection-bg); }
-.block-tree:focus { outline: none; }
-.block-text { cursor: text; min-height: 1.5em; }
-
-/* == Autocomplete == */
-.block-input-wrap { position: relative; flex: 1; min-width: 0; }
-/* The /upload file picker is driven programmatically; keep it out of layout. */
-.upload-input { display: none; }
-.ac-popup { position: absolute; top: 100%; left: 0; z-index: var(--z-editor-popup);
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
-  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 240px;
-  max-height: 40vh; overflow-y: auto; }
-.ac-row { padding: 4px 10px; cursor: pointer; }
-.ac-row.selected { background: var(--color-ac-selected-bg); }
-
-/* == Date picker == */
-.date-picker { position: absolute; top: 100%; left: 0; z-index: var(--z-editor-popup);
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
-  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); padding: 8px; width: 252px; }
-.date-picker-header { display: flex; align-items: center;
-  justify-content: space-between; padding: 0 2px 6px; font-weight: 600; }
-/* no :focus-visible ring on the picker's buttons, unlike every other bare
- * button here: DatePickerPopup is mouse-only by design, its buttons
- * preventDefault on mousedown so they never take focus, and Tab inside a block
- * indents rather than moving focus — so the ring would be unreachable. */
-.date-picker-header button { background: none; border: none; cursor: pointer;
-  font: inherit; color: var(--color-text); padding: 2px 8px; }
-.date-picker-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-.date-picker-dow { text-align: center; font-size: 0.75rem; padding: 2px 0; }
-.date-picker-day { background: none; border: none; cursor: pointer; font: inherit;
-  color: var(--color-text); padding: 4px 0; text-align: center; border-radius: 4px; }
-.date-picker-day:hover { background: var(--color-ac-selected-bg); }
-.date-picker-day.outside { opacity: 0.45; }
-.date-picker-day.today { font-weight: 600; }
-
-/* == Block menu == */
-.block-menu { position: fixed; z-index: var(--z-popover);
-  background: var(--color-bg-surface); border: 1px solid var(--color-border-input); border-radius: var(--radius-panel);
-  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.15); min-width: 200px;
-  padding: 4px 0; display: flex; flex-direction: column; }
-.block-menu-item { display: block; width: 100%; text-align: left;
-  background: none; border: none; padding: 5px 12px; cursor: pointer;
-  font: inherit; color: var(--color-text); }
-.block-menu-item:hover:not(:disabled) { background: var(--color-ac-selected-bg); }
-.block-menu-item:disabled { opacity: 0.5; cursor: default; }
-.block-menu-item:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-.block-menu-group { padding: 7px 12px 2px; color: var(--color-text-muted);
-  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase; }
-.block-menu-item-check { display: inline-block; width: 1.25em; }
-
-/* == Empty page == */
-.empty-page { display: block; width: 100%; text-align: left; color: var(--color-text-muted);
-  background: none; border: none; padding: 8px 0 24px; cursor: text;
-  font: inherit; }
-.empty-page:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
-
-/* == Keyboard bar == */
-/* rendered only on an iPhone (by user agent, not width), pinned to the top
- * of the on-screen keyboard. KeyboardBar sets `bottom` to the keyboard's
- * height. Keys are the shared pill, sized
- * for a thumb. A touch on a key must not start iOS text selection over the
- * labels, and two quick taps ("[" twice for a link) must not read as a
- * double-tap zoom. */
-.keyboard-bar { position: fixed; left: 0; right: 0; bottom: 0;
-  z-index: var(--z-keyboard-bar);
-  display: flex; gap: 6px; padding: 6px 8px;
-  background: var(--color-bg-surface); border-top: 1px solid var(--color-border);
-  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
-  touch-action: manipulation; }
-.keyboard-bar-key { flex: 1; min-width: 0; min-height: 36px; padding: 0;
-  font-size: 18px; }
-
-/* == Drag and drop == */
-.drop-indicator {
-  position: absolute;
-  right: 0;
-  height: 0;
-  border-top: 2px solid var(--color-accent);
-  pointer-events: none;
-  z-index: var(--z-drop-indicator);
-}
-/* iPadOS Safari routes presses (touch AND trackpad pointer) through the
- * touch gesture system: without these, a press on the handle is claimed by
- * scroll panning / text selection / the long-press callout and dragstart
- * never fires. */
-.bullet[draggable="true"] { cursor: grab; position: relative;
-  touch-action: none; -webkit-touch-callout: none;
-  -webkit-user-select: none; user-select: none; }
-/* Invisible enlarged hit area for the 13px dot; biased away from the left
- * edge so it doesn't steal the chevron's clicks. */
-.bullet[draggable="true"]::before { content: ""; position: absolute;
-  /* inset is from the padding box; the 4px border means -9px = 5px past the
-   * outer edge (left kept to 2px so the chevron isn't overlapped much) */
-  inset: -9px -9px -9px -6px; }
+/* == Help and settings pages == */
+/* renders docs/keyboard.md (help/parseHelpMarkdown.ts); prose lines are
+ * capped for readability, tables stay full width to fit their columns */
+.help-page h1, .help-page h2, .help-page h3, .help-page p { max-width: 640px; }
+.help-page h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 16px; }
+.help-page h2 { font-size: 20px; font-weight: 600; margin: 32px 0 10px; }
+.help-page h3 { font-size: 16px; font-weight: 600; color: var(--color-text-secondary); margin: 20px 0 8px; }
+.help-page p { margin: 0 0 14px; color: var(--color-text-secondary); }
+.help-page .roam-table-scroll { margin: 4px 0 20px; }
+/* /settings: a plain list of sections, each free to grow its
+ * own controls later -- same prose-width convention as .help-page. */
+.settings-page { max-width: 640px; }
+.settings-section { margin: 24px 0; }
+.settings-section h2 { font-size: 20px; font-weight: 600; margin: 0 0 10px; }
+.settings-section p { margin: 0; color: var(--color-text-secondary); }
+p.settings-note { font-size: 13px; color: var(--color-text-muted); margin-top: 6px; }
 
 /* == Assistant == */
 .assistant-panel {
@@ -1414,6 +1358,7 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
   .local-picker-row { padding: 12px 8px; min-height: 44px; box-sizing: border-box; justify-content: center; }
   .local-picker-header .btn-secondary { min-height: 44px; }
 }
+
 /* == Find bar == */
 /* rendered only in the installed app; matches are CSS highlights, not
  * elements, so ::highlight is their only hook */
@@ -1429,3 +1374,55 @@ button.file-badge.status-failed:hover { color: var(--color-error); }
   color: var(--color-text-secondary); }
 ::highlight(pkm-find) { background-color: var(--color-find-match); }
 ::highlight(pkm-find-current) { background-color: var(--color-find-current); }
+
+/* == Responsive == */
+/* the right sidebar overlays under 900px */
+@media (max-width: 900px) {
+  .sidebar { position: fixed; right: 0; top: var(--app-banner-height);
+    height: calc(100vh - var(--app-banner-height)); width: 340px;
+    box-shadow: -4px 0 16px rgba(var(--shadow-rgb), 0.2);
+    z-index: var(--z-sidebar-overlay); }
+}
+
+/* phone (<600px): nav behind a hamburger; view-only by construction */
+@media (max-width: 600px) {
+  .hamburger { display: block; }
+  /* Closed, the drawer is only translated off-screen, which leaves every link
+   * and button in it tabbable -- and they are the page's first tab stops.
+   * visibility:hidden removes the whole subtree from the focus
+   * order; it is transitioned so the slide-out stays visible (a visibility
+   * transition holds "visible" for the duration when moving to hidden, and
+   * applies immediately when moving to visible). Scoped to this breakpoint on
+   * purpose: at every wider width the nav is permanent and `navOpen` is
+   * meaningless. */
+  .left-nav { position: fixed; left: 0; top: var(--app-banner-height);
+    height: calc(100vh - var(--app-banner-height)); z-index: var(--z-phone-nav);
+    transform: translateX(-100%); visibility: hidden;
+    transition: transform 0.15s, visibility 0.15s; }
+  .left-nav.open { transform: translateX(0); visibility: visible; }
+  /* the desktop collapse toggle must not fight the hamburger overlay here;
+   * its button is hidden too, since collapse has no effect on phones */
+  .left-nav.collapsed { display: flex; }
+  .sidebar-toggle-button { display: none; }
+  /* extra left padding clears the fixed hamburger button */
+  .top-bar { width: auto; margin: 0; padding: 8px 16px 8px 52px; }
+  .top-bar-error { width: auto; margin: 0 16px 8px; padding: 0; }
+  .main-pane { width: auto; margin: 0; padding: 24px 16px 120px;
+    border: none; border-radius: 0; box-shadow: none; }
+  .sidebar { width: 100vw; }
+  /* search field: .search-field is the flex item that actually
+   * overflowed -- with no width of its own, a flex item's default min-width
+   * sizes to its content, so it never shrank below the focused input's fixed
+   * 320px, pushing the field past 320/390px viewports. min-width:
+   * 0 lets the flex algorithm squeeze it into whatever room the title and
+   * buttons leave. Desktop's fixed widths on .top-bar-search-input are
+   * untouched; they just act as a cap the flex item can no longer be forced
+   * past. Losing that growth cue also loses its only focus signal here
+   * (.top-bar-search-input:focus-visible normally opts out), so
+   * the themed ring the field family carries everywhere else comes back. */
+  .search-field { min-width: 0; }
+  .top-bar-search-input:focus-visible { outline: 2px solid var(--color-link); outline-offset: 1px; }
+  /* A ~68px gutter is too much of a phone line, and the page-menu toggle is
+   * a desktop affordance. */
+  .block-stamp { display: none; }
+}

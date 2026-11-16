@@ -53,6 +53,15 @@ function block(uid: BlockUid, parent: HTMLElement = document.body): HTMLElement 
   return el;
 }
 
+it("finds a plain-table cell by its data-cell-uid", () => {
+  const td = document.createElement("td");
+  td.setAttribute("data-cell-uid", "tuid-cell1");
+  document.body.appendChild(td);
+  renderHook(() => useScrollFlashTarget(uidOf("tuid-cell1"), true));
+  expect(scrolled).toEqual({ block: "center" });
+  expect(td.classList.contains("flash-target")).toBe(true);
+});
+
 it("scrolls the block into the centre and flashes it", () => {
   const el = block(uidOf("abc123"));
   renderHook(() => useScrollFlashTarget(uidOf("abc123"), true));

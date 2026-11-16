@@ -22,7 +22,10 @@ export function QueryCards({ rows, columns, depth }: {
             return (
               <div key={c.name} className="query-card-row">
                 <span className="query-card-key">{c.label}</span>
-                <span><CellValue cell={cell} depth={depth} /></span>
+                <span>
+                  <CellValue cell={cell} page={record.page_title}
+                             depth={depth} />
+                </span>
               </div>
             );
           })}

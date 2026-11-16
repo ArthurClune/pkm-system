@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { EditableBlockTree } from "../components/EditableBlockTree";
+import { OutlinePageContext } from "../contexts";
 import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
 import type { DropTarget } from "../outline/dnd";
@@ -146,12 +147,14 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
           </button>
         </div>
       ) : (
-        <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
-                           selection={outline.selection} handlers={handlers}
-                           readOnly={outline.readOnly || !ownsEditor}
-                           fallback={!ownsEditor} stamps={stamps}
-                           refCounts={refCounts}
-                           onPickerNotice={setPickerNotice} />
+        <OutlinePageContext.Provider value={title}>
+          <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
+                             selection={outline.selection} handlers={handlers}
+                             readOnly={outline.readOnly || !ownsEditor}
+                             fallback={!ownsEditor} stamps={stamps}
+                             refCounts={refCounts}
+                             onPickerNotice={setPickerNotice} />
+        </OutlinePageContext.Provider>
       )}
       {ownsEditor && indicator && (
         <div className="drop-indicator"

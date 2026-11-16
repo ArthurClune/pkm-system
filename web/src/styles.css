@@ -829,6 +829,12 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
   from { background: var(--color-ac-selected-bg); }
   to { background: transparent; }
 }
+/* a jump to a plain-table cell's line; no `to`, so the opaque cell fill
+ * returns instead of the row behind showing through */
+td.flash-target { animation: flash-target-cell 1.6s ease-out; }
+@keyframes flash-target-cell {
+  from { background: var(--color-ac-selected-bg); }
+}
 mark.highlight { background: var(--color-highlight-bg); }
 
 /* == Media and embeds == */

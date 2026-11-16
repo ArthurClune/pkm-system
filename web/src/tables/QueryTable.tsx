@@ -46,7 +46,9 @@ export function QueryTable({ rows, columns, keys, records, sort, onSortClick,
           return <><RecordLink record={r.record} depth={depth} /><RecordSource record={r.record} /></>;
         }
         const cell = cellOf(r, c);
-        return cell ? <CellValue cell={cell} depth={depth} /> : null;
+        return cell
+          ? <CellValue cell={cell} page={r.record.page_title} depth={depth} />
+          : null;
       }}
       rawValue={(r, c) => cellOf(r, c)?.value ?? ""}
       sort={sort} onSortClick={onSortClick} staleIds={stale}

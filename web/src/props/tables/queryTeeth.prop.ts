@@ -53,6 +53,12 @@ const MUTANTS: Record<string, Mutant> = {
                ...shownRows(records, columns, s.view.live, s.view.frozen, held) };
     },
   },
+  "the hold covers the view the macro sets": {
+    catches: ["chosen"],
+    ...REAL_QUERY,
+    show: (s, ...rest) => ({ ...REAL_QUERY.show(s, ...rest),
+                             view: s.held?.view ?? s.view.live.view }),
+  },
   "a held column finds no key in the first edit's stats": {
     catches: ["hold-keys"],
     ...REAL_QUERY,

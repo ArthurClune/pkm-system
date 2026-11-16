@@ -515,7 +515,12 @@ outside (in the capture phase, so a surface that stops propagation still
 commits), a keyboard blur, the cell's row or column ceasing to render, and
 its own unmount. The unmount commit runs after the host's effect cleanups,
 in the same commit. So a host's `onWrite` must not depend on anything its
-cleanup tears down; `PlainTable`'s reads only its props.
+cleanup tears down; `PlainTable`'s reads only its props. That `onWrite` is
+also the one from the render before the change that unmounted the table.
+A host that freezes what is on screen reads the last commit instead
+(`QueryResults`' `shownNow`). `PlainTable` freezes its rows from the
+closure, which holds because its table unmounts only with the block,
+whose view state goes with it.
 
 `canEdit` gates opening a cell, never an open one. Losing it in a
 connection blip must not write a half-typed draft or close the cell. A

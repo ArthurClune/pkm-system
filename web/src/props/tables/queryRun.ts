@@ -8,7 +8,8 @@
 // (editedEvent), and is skipped where no cell can be written. Stops at the
 // first step with a problem and returns every problem found there, each
 // led by the invariant it breaks:
-// - frozen: rows are held exactly when the model says;
+// - frozen: rows are held exactly when the model says (stepView's rule,
+//   whose mutants are in teeth.prop.ts);
 // - held-iff-frozen: the snapshot is set exactly while the rows are held;
 // - hold-view, hold-columns: a field that follows the defaults shows what
 //   the first edit saw;
@@ -16,9 +17,11 @@
 //   edit's;
 // - hold-rows: the held rows are the first edit's, in order, and one the
 //   records lack is stale;
-// - chosen: a field the macro or reader chose shows the live view's;
+// - chosen: a field the macro sets shows the live view's;
 // - released: with no rows held, the live view, its columns, and the
-//   current records through the live filter and sort.
+//   current records through the live filter and sort. The rows are judged
+//   by shownRows itself: this suite checks the hold, and the filter and
+//   sort have their own unit tests and the table view property.
 import type { QueryRecordModel } from "../../api/payloads";
 import type { MacroOptions } from "../../grammar/macroOptions";
 import {
@@ -81,14 +84,13 @@ export function runQueryExample(example: QueryExample,
     keys: example.first.keys, records: example.first.records, first: null,
   };
   for (const [i, step] of example.steps.entries()) {
-    const before = block;
     const prior = model;
     [block, model] = apply(machine, block, model, step);
     const problems = check(machine, block, model);
     if (problems.length > 0) {
       return { problems: problems.map((p) => `${p} (step ${i})`), reached };
     }
-    label(reached, step, before, block, prior, model);
+    label(reached, step, prior, model);
   }
   return { problems: [], reached };
 }
@@ -184,8 +186,8 @@ function check(m: QueryMachine, b: Block, model: QueryModel): string[] {
   return problems;
 }
 
-function label(reached: Set<string>, step: QueryStep, before: Block,
-               after: Block, prior: QueryModel, model: QueryModel): void {
+function label(reached: Set<string>, step: QueryStep, prior: QueryModel,
+               model: QueryModel): void {
   const was = expected(prior);
   const now = expected(model);
   if (was.rows !== null) {
@@ -209,8 +211,9 @@ function label(reached: Set<string>, step: QueryStep, before: Block,
     }
   }
   if (!now.columnsFollow) reached.add("held with columns the macro sets");
-  if (now.columns.some((c) => !after.keys.some((k) => k.label === c.label)
-      && before.qv.held?.keys.some((k) => k.label === c.label))) {
+  if (!now.viewFollows) reached.add("held with a view the macro sets");
+  if (now.columns.some((c) => !model.keys.some((k) => k.label === c.label)
+      && prior.first?.stats.some((k) => k.label === c.label))) {
     reached.add("keyed a held column by the first edit's stats");
   }
 }

@@ -490,9 +490,13 @@ The snapshot is taken in the step that freezes the rows, from the last
 committed render (`shownNow` in `QueryResults`), not from a load or from
 the closure of the cell write. DataTable's unmount commit runs the
 `onWrite` of the render before the change that unmounted it, which would
-freeze what is gone. It sits in `QueryResults`' state beside `stepView`,
-not in it: held in `live`, the columns would make the view dirty, and
-Save would pin them as `columns:`.
+freeze what is gone. It sits in the query block's state
+(`QueryBlockState`, `tables/queryBlock.ts`) beside `stepView`, not in it:
+held in `live`, the columns would make the view dirty, and Save would pin
+them as `columns:`. A records load lands in one reducer step, which holds
+records under the rows frozen in the state it steps and then steps the
+view. Splitting the two across renders would let a load hold records under
+a frozen list an edit has since changed.
 
 Save writes only the fields that differ from the data's defaults
 (`optionsFromView`). A block with no `view:` or `columns:` keeps following

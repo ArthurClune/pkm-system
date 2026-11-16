@@ -934,6 +934,11 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .pdf-overlay-title { font-weight: 600; margin-right: auto; }
 .pdf-overlay .pdf-frame { flex: 1; height: auto; border: none; border-radius: 0;
   overscroll-behavior: contain; }
+/* overlay-only mode (/files, table cells) puts react-pdf's Document div
+ * between the overlay and the frame; without this the div grows to the whole
+ * document, the overlay clips it, and the frame has nothing to scroll */
+.pdf-overlay > .react-pdf__Document { flex: 1; min-height: 0; display: flex;
+  flex-direction: column; }
 /* overlay-only mode renders its loading note / fallback link directly in the
  * overlay, where the frame's padding doesn't exist */
 .pdf-overlay > .pdf-loading-note, .pdf-overlay > .pdf-embed { padding: 16px; }

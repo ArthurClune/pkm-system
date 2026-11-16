@@ -185,6 +185,11 @@ clear a rounded image corner. The exceptions, each commented in `styles.css`:
   baseline. `.block-row` aligns on the baseline, so it takes it from
   `.pdf-footer`'s text rather than a canvas inside the scroller. A numbered
   bullet is text, so `.bullet.numbered` joins with `align-self: baseline`.
+  In `.pdf-overlay` the frame scrolls only as a flex item that fills the
+  overlay's column. Overlay-only mode (`/files`, table cells) wraps it in
+  react-pdf's `.react-pdf__Document` div, so that div is made the filling
+  flex column too; otherwise it grows to the whole document and nothing
+  scrolls. `e2e/cell-media.spec.ts` wheels the frame to pin it.
 - **Embedded image caps.** `.asset-image` (an external `<img>`) and
   `.asset-image-trigger` (an uploaded image's wrapper) share one
   `max-width` cap. The inner image resets to `max-width: 100%` so the caps do

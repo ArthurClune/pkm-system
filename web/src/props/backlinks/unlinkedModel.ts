@@ -5,7 +5,7 @@
 
 /** A block's status: "none" before any click, "error a" and "error b" two
  * different failure messages. */
-export type ModelStatus = "none" | "pending" | "settled" | "delivered" | "error a" | "error b";
+export type ModelStatus = "none" | "pending" | "queued" | "delivered" | "error a" | "error b";
 
 const isError = (s: ModelStatus): boolean => s === "error a" || s === "error b";
 
@@ -15,8 +15,8 @@ export function allowed(from: ModelStatus, to: ModelStatus): boolean {
   if (isError(to)) return true;
   switch (to) {
     case "pending": return from === "none" || isError(from);
-    case "settled": return from === "pending";
-    case "delivered": return from === "settled";
+    case "queued": return from === "pending";
+    case "delivered": return from === "queued";
     default: return false;
   }
 }
@@ -33,5 +33,5 @@ export function linkable(s: ModelStatus): boolean {
 
 /** The block shows in the list. */
 export function listed(s: ModelStatus): boolean {
-  return s !== "settled" && s !== "delivered";
+  return s !== "queued" && s !== "delivered";
 }

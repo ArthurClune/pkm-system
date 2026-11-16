@@ -3,7 +3,7 @@ import type { Example } from "./unlinkedArbitraries";
 import { REAL_OPS, runExample } from "./unlinkedRun";
 
 const chain = (block: number): Example["steps"] => [
-  { block, to: "pending" }, { block, to: "settled" }, { block, to: "delivered" },
+  { block, to: "pending" }, { block, to: "queued" }, { block, to: "delivered" },
   { block, to: "error a" },
 ];
 

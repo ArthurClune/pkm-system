@@ -15,7 +15,7 @@ import { InlineSegments } from "./InlineSegments";
 import { PageLink } from "./PageLink";
 import { mergeGroups } from "./groups";
 import {
-  canLink, isListed, nextOffset as nextOffsetOf, settledCount, withStatus,
+  canLink, isListed, nextOffset as nextOffsetOf, queuedCount, withStatus,
   withoutDelivered, type LinkStatus, type LinkStatuses,
 } from "./unlinkedStatus";
 
@@ -92,12 +92,10 @@ export function UnlinkedSection({ title, onLinked }: {
       return;
     }
 
-    const settled = await ticket.settled;
-    if (settled.status === "failed") {
-      setStatus(item.uid, { error: String(settled.error) });
-      return;
-    }
-    setStatus(item.uid, "settled");
+    // A failed settle is not a dropped write: the queue still delivers any
+    // op the replica did not reject, so only `delivered` decides the error.
+    await ticket.settled;
+    setStatus(item.uid, "queued");
 
     const delivered = await ticket.delivered;
     if (delivered.status === "failed") {
@@ -126,7 +124,7 @@ export function UnlinkedSection({ title, onLinked }: {
     }))
     .filter((group) => group.items.length > 0);
   const visibleTotal = total === null
-    ? null : Math.max(0, total - settledCount(statuses));
+    ? null : Math.max(0, total - queuedCount(statuses));
   const loadedCount = groups.reduce((n, g) => n + g.items.length, 0);
   const nextOffset = nextOffsetOf(loadedCount, statuses);
 

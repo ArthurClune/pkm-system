@@ -22,10 +22,14 @@ test("undo and redo across text and structure", async ({ page, ownPage }) => {
   // block-row count is not assumed to start at 0: other specs share the DB
   // and run first, so track the delta this test introduces instead of an
   // absolute count.
+  const startWriting = today.getByText("Click to start writing…");
+  // the outline renders after the page loads; counting before it settles
+  // reads an empty page as a populated one
+  await expect(today.locator(".block-row").or(startWriting).first())
+    .toBeVisible();
   const baseline = await today.locator(".block-row").count();
 
   // append a fresh sibling after whatever's already on today's page
-  const startWriting = today.getByText("Click to start writing…");
   if (await startWriting.count() > 0) {
     await startWriting.click();
   } else {

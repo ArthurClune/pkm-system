@@ -10,7 +10,8 @@
 // online-only. While a cell edit holds the rows in place, a refetch that
 // drops a held row's record keeps showing the record it last had
 // (holdRecords), so a row an edit took out of the query stays put,
-// writable, until the view changes.
+// writable, until the view changes; and a view or column list that follows
+// the data's defaults stays as the first edit saw it (showQuery).
 import { Fragment, useCallback, useContext, useEffect, useLayoutEffect,
          useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -28,13 +29,15 @@ import { pagePath } from "../paths";
 import { useResync, useSyncHealth } from "../sync/SyncProvider";
 import { QueryCards } from "../tables/QueryCards";
 import { QueryTable } from "../tables/QueryTable";
-import { holdRecords, planQuerySave, queryColumns, queryDefaults,
-         shownRows, type QueryColumn } from "../tables/queryView";
+import { holdRecords, planQuerySave, queryDefaults,
+         type QueryColumn } from "../tables/queryView";
+import { editedEvent, initialQueryView, showQuery, stepQueryView,
+         type QueryViewEvent,
+         type QueryViewState } from "../tables/queryViewState";
 import { island } from "../tables/island";
 import { TableToolbar } from "../tables/TableToolbar";
 import { useCellWrites } from "../tables/useCellWrites";
-import { initialView, isDirty, optionsFromView, stepView,
-         viewFromOptions, type ViewDefaults, type ViewEvent,
+import { isDirty, optionsFromView, viewFromOptions, type ViewDefaults,
          type ViewState } from "../tables/viewState";
 import { WriteNotice } from "../tables/WriteNotice";
 import { MISSING_ANCESTOR_TEXT } from "./groups";
@@ -82,7 +85,8 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const [groups, setGroups] = useState<QueryGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
-  const [view, setView] = useState<ViewState | null>(null);
+  const [qv, setQv] = useState<QueryViewState | null>(null);
+  const view = qv?.view ?? null;
   const [saveRefusal, setSaveRefusal] =
     useState<{ live: ViewState["live"]; text: string } | null>(null);
   const [generation, setGeneration] = useState(0);
@@ -140,12 +144,22 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   useEffect(() => {
     if (loaded === null) return;
     const saved = viewFromOptions(options, loaded.defaults);
-    setView((v) => v === null ? initialView(saved)
-      : stepView(v, { kind: "loaded", saved }));
+    setQv((v) => v === null ? initialQueryView(saved)
+      : stepQueryView(v, { kind: "loaded", saved }));
   }, [loaded, options]);
 
+  const shown = loaded === null || qv === null ? null
+    : showQuery(qv, options, loaded.keys, records, held);
+  // What the last commit showed, for the edit a cell write steps the view
+  // with. DataTable's unmount commit calls the onWrite of the render before
+  // the change that unmounted it, which would freeze what is gone.
+  const shownNow = useRef<Parameters<typeof editedEvent> | null>(null);
+  useLayoutEffect(() => {
+    shownNow.current = shown === null || loaded === null ? null
+      : [shown, loaded.keys];
+  });
   const savedBlocks = options.view === "blocks";
-  const shownView = view?.live.view ?? null;
+  const shownView = shown?.view ?? null;
   // The saved view counts until there is a shown one to follow.
   const wantsBlocks = shownView === null ? savedBlocks : shownView === "blocks";
   useEffect(() => {
@@ -183,15 +197,15 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   }, []);
   const writes = useCellWrites(patch);
 
-  const step = (e: ViewEvent) => setView((v) => v && stepView(v, e));
+  const step = (e: QueryViewEvent) => setQv((v) => v && stepQueryView(v, e));
 
   const header = (
     <div className="query-header">
       <span className="query-expr">query: {expr}</span>
-      {view !== null && (
+      {shown !== null && (
         <span className="query-views" role="group" aria-label="View" {...island}>
           {VIEWS.map(({ view: v, label }) => (
-            <button key={v} type="button" aria-pressed={view.live.view === v}
+            <button key={v} type="button" aria-pressed={shown.view === v}
                     className="btn-secondary btn-compact"
                     onClick={() => step({ kind: "view", view: v })}>{label}</button>
           ))}
@@ -200,7 +214,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
     </div>
   );
 
-  if (loaded === null || view === null) {
+  if (loaded === null || view === null || shown === null) {
     return (
       <div className="query-block">
         {header}
@@ -210,9 +224,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   }
 
   const live = view.live;
-  const columns: QueryColumn[] = queryColumns(live.columns, loaded.keys);
-  const { rows, matching } = shownRows(records, columns, live, view.frozen,
-                                      held);
+  const { columns, rows, matching } = shown;
   const next = optionsFromView(live, loaded.defaults);
   const refusal = optionsRefusal(next)
     ?? (saveRefusal?.live === live ? saveRefusal.text : null);
@@ -231,7 +243,8 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
 
   const onWrite = (r: QueryRecordModel, c: QueryColumn, value: string) => {
     if (writes.write(r, c, value)) {
-      step({ kind: "edited", visibleIds: rows.map((row) => row.record.key) });
+      const now = shownNow.current;
+      if (now !== null) step(editedEvent(...now));
     }
   };
 
@@ -239,7 +252,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
     <div className="query-block">
       {header}
       {error && <p className="error">{error}</p>}
-      {groupsError && live.view === "blocks"
+      {groupsError && shown.view === "blocks"
         && <p className="error">{groupsError}</p>}
       <TableToolbar filter={live.filter}
                     onFilter={(text) => step({ kind: "filter", text })}
@@ -259,7 +272,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
       )}
       {/* Results are other blocks' text: nothing in them acts on the host. */}
       <BlockEditContext.Provider value={null}>
-        {live.view === "table" && (
+        {shown.view === "table" && (
           <QueryTable rows={rows} columns={columns} keys={loaded.keys}
                       records={records} sort={live.sort}
                       onSortClick={(col) => step({ kind: "sortClick", col })}
@@ -267,10 +280,10 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
                       onColumns={(labels) => step({ kind: "columns", columns: labels })}
                       depth={depth + 1} />
         )}
-        {live.view === "cards" && (
+        {shown.view === "cards" && (
           <QueryCards rows={rows} columns={columns} depth={depth + 1} />
         )}
-        {live.view === "blocks" && groups !== null && (
+        {shown.view === "blocks" && groups !== null && (
           <QueryGroups groups={groups} depth={depth}
                        shown={live.filter.trim() === "" ? null
                          : new Set(rows.flatMap((r) => r.record.result_uids))} />

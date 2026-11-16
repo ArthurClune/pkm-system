@@ -217,7 +217,7 @@ Each suite states its invariants in its module docstring or file header.
 | `journal/` | [the Journal's paging](contracts/frontend.md#the-journal) (`journalPaging`) |
 | `files/` | [the `/files` browser](contracts/frontend.md#the-files-browser)'s generation rules (`filesPaging`) |
 | `backlinks/` | `backlinksPaging`'s epoch and walk rules (`backlinks.prop.ts`); `withStatus` against the Link lifecycle table in `unlinkedStatus.ts` (`unlinked.prop.ts`) |
-| `tables/` | [the table view](contracts/frontend-editor.md#the-table-view) (`viewState.prop.ts`, `stepView`) and [the cell editor](contracts/frontend-editor.md#the-cell-editor) (`cellEditor.prop.ts`, `stepEditor`); pure, with no server or DOM |
+| `tables/` | [the table view](contracts/frontend-editor.md#the-table-view) (`viewState.prop.ts`, `stepView`; `queryView.prop.ts`, `stepQueryView` and `showQuery`) and [the cell editor](contracts/frontend-editor.md#the-cell-editor) (`cellEditor.prop.ts`, `stepEditor`); pure, with no server or DOM |
 
 Rules a change to the gate must keep:
 

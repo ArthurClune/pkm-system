@@ -94,6 +94,21 @@ describe("queryColumns", () => {
   it("drops a repeated name", () => {
     expect(queryColumns(["Author", "Author"], KEYS)).toHaveLength(1);
   });
+
+  it("looks in the fallback stats only for a name the current ones lack", () => {
+    const fallback = [stat("gone", 1, "Gone"), stat("Pub", 1, "Old")];
+    expect(queryColumns(["Gone", "Pub"], [stat("Pub", 1, "Published")],
+                        fallback)).toEqual([
+      { name: "Gone", label: "Gone", key: "gone" },
+      { name: "Pub", label: "Pub", key: "Pub" },
+    ]);
+  });
+
+  it("prefers a current key to a fallback label", () => {
+    expect(queryColumns(["Pub"], [stat("Pub", 1, "Published")],
+                        [stat("other", 1, "Pub")]))
+      .toEqual([{ name: "Pub", label: "Pub", key: "Pub" }]);
+  });
 });
 
 describe("shownRows", () => {

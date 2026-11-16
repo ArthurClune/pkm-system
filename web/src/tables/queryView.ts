@@ -42,12 +42,16 @@ export function queryDefaults(p: QueryRecordsPayload): ViewDefaults {
 }
 
 /** A stored name finds its key by the label the server reports for it, or
- * as a key itself; a name matching neither is a column no record holds. */
+ * as a key itself, in `keys` and then in `fallback`; a name matching none
+ * is a column no record holds. */
 export function queryColumns(labels: readonly string[],
-                             keys: readonly KeyStat[]): QueryColumn[] {
+                             keys: readonly KeyStat[],
+                             fallback: readonly KeyStat[] = []): QueryColumn[] {
   const byName = new Map<string, string>();
-  for (const k of keys) if (!byName.has(k.label)) byName.set(k.label, k.key);
-  for (const k of keys) if (!byName.has(k.key)) byName.set(k.key, k.key);
+  for (const stats of [keys, fallback]) {
+    for (const k of stats) if (!byName.has(k.label)) byName.set(k.label, k.key);
+    for (const k of stats) if (!byName.has(k.key)) byName.set(k.key, k.key);
+  }
   const seen = new Set<string>();
   const out: QueryColumn[] = [];
   for (const label of labels) {

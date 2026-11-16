@@ -466,6 +466,24 @@ the view or resets it, so an edited row neither moves nor vanishes. A
 refetch that no longer returns a held row keeps showing its last record,
 stale (`holdRecords`). Otherwise an edit that took a row out of the query
 would drop it, and commit any draft open in it, on the next resync.
+A query block also holds what the first edit saw (`stepQueryView`): a view
+or column list the macro leaves to the data's defaults stays as it was
+then (`showQuery`). A refetch can move those defaults: records that no
+longer hold a key drop its column, and records with no `::` line make
+blocks the default. Either would take a column or the whole table, with
+any draft open there, from the reader. While held, a column the current key
+stats no longer name finds its key in the first edit's, so a held row's
+cell reads and writes its own line. What the macro sets shows as it is. A
+column change from the menu of a held table starts from the columns on
+screen, so held columns the reader keeps become their own.
+
+The snapshot is taken in the step that freezes the rows, from the last
+committed render (`shownNow` in `QueryResults`), not from a load or from
+the closure of the cell write. DataTable's unmount commit runs the
+`onWrite` of the render before the change that unmounted it, which would
+freeze what is gone. It sits in `QueryResults`' state beside `stepView`,
+not in it: held in `live`, the columns would make the view dirty, and
+Save would pin them as `columns:`.
 
 Save writes only the fields that differ from the data's defaults
 (`optionsFromView`). A block with no `view:` or `columns:` keeps following
@@ -497,7 +515,12 @@ outside (in the capture phase, so a surface that stops propagation still
 commits), a keyboard blur, the cell's row or column ceasing to render, and
 its own unmount. The unmount commit runs after the host's effect cleanups,
 in the same commit. So a host's `onWrite` must not depend on anything its
-cleanup tears down; `PlainTable`'s reads only its props.
+cleanup tears down; `PlainTable`'s reads only its props. That `onWrite` is
+also the one from the render before the change that unmounted the table.
+A host that freezes what is on screen reads the last commit instead
+(`QueryResults`' `shownNow`). `PlainTable` freezes its rows from the
+closure, which holds because its table unmounts only with the block,
+whose view state goes with it.
 
 `canEdit` gates opening a cell, never an open one. Losing it in a
 connection blip must not write a half-typed draft or close the cell. A

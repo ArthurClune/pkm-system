@@ -13,6 +13,8 @@ a change in behaviour edits the row here and the models together:
   (`draft.prop.ts`) checks the real editor against;
 - `web/src/props/tables/model.ts`, which `viewState.prop.ts` checks
   `stepView` against;
+- `web/src/props/tables/queryModel.ts`, which `queryView.prop.ts` checks
+  `stepQueryView`, `showQuery` and `holdRecords` against;
 - `web/src/props/tables/cellModel.ts`, which `cellEditor.prop.ts` checks
   `stepEditor` and `neighbourCell` against.
 
@@ -156,6 +158,24 @@ is not a change. Reset and Save show only while it is dirty.
 | a refetch, the view dirty | the macro's options | unchanged | unchanged | a refetch must not lose the reader's changes |
 | a refetch, the view clean | the macro's options | the macro's options | unchanged | a Save on another device must not leave this one offering Reset |
 | the block unmounted and mounted again | the macro's options | the saved view | none | the state belongs to the mounted block |
+
+What a query block shows (`showQuery`). A field follows the defaults when
+the macro's options leave it out. The first edit is the first cell write
+since the rows were last released. A live view the reader changes while
+rows are held releases them, so what the first edit saw is never older
+than the reader's own changes.
+
+| Case | Shows | Reason |
+|---|---|---|
+| no rows held | the live view, its columns, and the current records through the live filter and sort, none stale | |
+| no rows held, a column's key | the key the current key stats give it, by label and then as a key; else the label | |
+| rows held, the view following the defaults | the view shown at the first edit | a refetch whose records hold no `::` line makes blocks the default, which would take the table and an open draft from the reader |
+| rows held, the view not following the defaults | the live view | a view the macro sets is not a default |
+| rows held, the columns following the defaults | the column labels shown at the first edit, in that order | a refetch whose records no longer hold a key drops its column from the defaults |
+| rows held, the columns not following the defaults | the live view's columns | columns the macro sets are not defaults |
+| rows held, a column's key | the key the current key stats give it, else the one the first edit's stats give it, each by label and then as a key; else the label | a held row's cell must read and write its own line |
+| rows held, the rows | the first edit's rows, in order, each from the current records or else from its last record; one the current records lack is stale | an edited row must neither move nor vanish |
+| a second edit while rows are held | what the first edit saw, unchanged | |
 
 ## The cell editor
 

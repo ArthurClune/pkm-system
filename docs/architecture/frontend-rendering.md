@@ -223,7 +223,10 @@ reads the default from whether `groups` is null, so the rule lives on the
 server only. Otherwise `/api/query` is read for the groups: alongside the
 records whenever the macro saves `view: blocks` and the reader has not
 picked another view (discarded if the records carry the groups), on demand
-when the reader picks Blocks.
+when the reader picks Blocks. Leaving the blocks view and returning retries
+a failed fetch. `QueryResults` only runs the requests: the block's state
+and `groupsFetchDue` are `tables/queryBlock.ts`'s, and the cases are in the
+[contract](contracts/frontend-editor.md#what-a-query-block-fetches).
 
 | View | Shows |
 |---|---|

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { payloadOf, recordOf, type QueryExample } from "./queryArbitraries";
-import { REAL_QUERY, runQueryExample, type QueryMachine } from "./queryRun";
+import {
+  makeQueryBlock, QUERY_BLOCK, REAL_QUERY,
+} from "../../tables/queryBlock";
+import { runQueryExample } from "./queryRun";
 
 /** Edits a table of two authored books, then a refetch answers with one
  * bare record, so its default is blocks and holds no column; then the
@@ -33,17 +36,54 @@ describe("the query view property's runner", () => {
   });
 
   it("sees a view that is not held", () => {
-    const unheld: QueryMachine = {
+    const unheld = makeQueryBlock({
       ...REAL_QUERY,
       show: (s, ...rest) => ({ ...REAL_QUERY.show(s, ...rest), view: s.view.live.view }),
-    };
+    });
     expect(runQueryExample(heldThroughBlocks, unheld).problems)
       .toEqual(["hold-view: view blocks, model table (step 1)"]);
   });
 
   it("sees a refetch drop a held row", () => {
-    const drops: QueryMachine = { ...REAL_QUERY, hold: () => new Map() };
+    const drops = makeQueryBlock({ ...REAL_QUERY, hold: () => new Map() });
     expect(runQueryExample(heldThroughBlocks, drops).problems)
       .toContainEqual(expect.stringMatching(/^hold-rows: .* \(step 1\)$/));
+  });
+
+  /** A saved blocks view starts /api/query with the records, which carry
+   * the groups; the /api/query answer then lands, and the reader leaves
+   * the view and returns. */
+  const carriedThenLate: QueryExample = {
+    options: { view: "blocks" },
+    first: payloadOf([recordOf("r1", [])]),
+    steps: [
+      { kind: "groups", ok: true },
+      { kind: "view", view: "table" },
+      { kind: "view", view: "blocks" },
+    ],
+  };
+
+  it("keeps the groups the records carried over a late answer", () => {
+    const run = runQueryExample(carriedThenLate);
+    expect(run.problems).toEqual([]);
+    expect([...run.reached]).toEqual(expect.arrayContaining([
+      "started a fetch with the records for a saved blocks view",
+      "records carried the groups while a fetch was out",
+      "dropped an answer the records' groups made late",
+      "settled in the blocks view with this load's groups",
+    ]));
+  });
+
+  it("sees a late answer replace the groups the records carried", () => {
+    const takesAny = {
+      ...QUERY_BLOCK,
+      step: (s: Parameters<typeof QUERY_BLOCK.step>[0],
+             e: Parameters<typeof QUERY_BLOCK.step>[1]) =>
+        e.kind === "groupsLanded"
+          ? { ...s, groups: e.groups, groupsFor: e.load, groupsError: null }
+          : QUERY_BLOCK.step(s, e),
+    };
+    expect(runQueryExample(carriedThenLate, takesAny).problems).toEqual([
+      "groups-replaced: load 0's answer replaced load 0's groups (step 0)"]);
   });
 });

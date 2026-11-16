@@ -72,14 +72,19 @@ export function showQuery(
   heldRecords: ReadonlyMap<string, QueryRecordModel>,
 ): QueryShown {
   const { view: { live, frozen }, held } = s;
-  const view = held !== null && options.view === undefined
-    ? held.view : live.view;
+  const view = shownView(s, options);
   const labels = held !== null && options.columns === undefined
     ? held.columns : live.columns;
   const columns = queryColumns(labels, keys, held?.keys ?? []);
   const { rows, matching } = shownRows(records, columns, live, frozen,
                                       heldRecords);
   return { view, columns, rows, matching };
+}
+
+/** showQuery's view, without the rows it would also work out. */
+export function shownView(s: QueryViewState, options: MacroOptions): MacroView {
+  return s.held !== null && options.view === undefined
+    ? s.held.view : s.view.live.view;
 }
 
 /** The event a cell write steps the view with: the rows on screen, and

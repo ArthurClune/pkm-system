@@ -13,8 +13,10 @@ a change in behaviour edits the row here and the models together:
   (`draft.prop.ts`) checks the real editor against;
 - `web/src/props/tables/model.ts`, which `viewState.prop.ts` checks
   `stepView` against;
-- `web/src/props/tables/queryModel.ts`, which `queryView.prop.ts` checks
-  `stepQueryView`, `showQuery` and `holdRecords` against;
+- `web/src/props/tables/queryModel.ts` and `queryFetch.ts`, which
+  `queryView.prop.ts` checks the query block reducer (`tables/queryBlock.ts`,
+  over `stepQueryView`, `showQuery` and `holdRecords`) and
+  `groupsFetchDue` against;
 - `web/src/props/tables/cellModel.ts`, which `cellEditor.prop.ts` checks
   `stepEditor` and `neighbourCell` against.
 
@@ -176,6 +178,30 @@ than the reader's own changes.
 | rows held, a column's key | the key the current key stats give it, else the one the first edit's stats give it, each by label and then as a key; else the label | a held row's cell must read and write its own line |
 | rows held, the rows | the first edit's rows, in order, each from the current records or else from its last record; one the current records lack is stale | an edited row must neither move nor vanish |
 | a second edit while rows are held | what the first edit saw, unchanged | |
+
+## What a query block fetches
+
+When a query block reads `/api/query` for the blocks view
+(`groupsFetchDue`, `tables/queryBlock.ts`); the principle is in
+[frontend-rendering.md § Query blocks](../frontend-rendering.md#query-blocks).
+A load is one records request: the mount, a resync, or a new expression. A
+stay runs from a step that shows the blocks view to the step that leaves it.
+Before the first records land, the macro's saved view counts as the shown
+one.
+
+| Case | `/api/query` | Reason |
+|---|---|---|
+| fetch-unwanted: the blocks view not shown | not started; an answer still out is dropped | |
+| saved: the macro saves `view: blocks`, the blocks view shown | started with each load's records request | one round trip, not two in turn |
+| fetch-early: the macro does not save `view: blocks`, the blocks view shown, this load's records still out | not started yet | the records may carry the groups |
+| settled: the same, this load's records landed without groups, or failed | started | |
+| fetch-carried: this load's records carried the groups | not started; an answer still out is dropped, for this load or an older one | the records are as new as any answer |
+| fetch-twice: one already started for this load in this stay, still out or failed | not started again | |
+| retry: the reader leaves the blocks view and returns | a new stay, so a failed load is fetched again | |
+| an answer to the last fetch started in this stay | its groups shown, clearing the groups error; or its error shown | |
+| an answer to an earlier fetch | dropped (`useStaleGuard` for one this stay started over, the reducer for one from an earlier stay) | |
+| groups-replaced: an answer for a load older than the shown groups', or the same load | never replaces them | |
+| stall: nothing out, the blocks view shown | this load's groups, or the error of this stay's fetch for it | a block must not wait on a fetch nobody started |
 
 ## The cell editor
 

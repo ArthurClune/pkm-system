@@ -1,9 +1,10 @@
 // pattern: Imperative Shell
 // The query view property: drawn macro options, a first records answer and
-// a sequence of reader changes, cell edits, refetches and macro edits, run
-// through stepQueryView, showQuery and holdRecords as QueryResults wires
-// them, beside the model (queryRun.ts); what the block shows is checked at
-// every step. Pure: no server, no DOM.
+// a sequence of reader changes, cell edits, refetches, macro edits, and
+// resyncs whose records and /api/query answers land or fail later, run
+// through the query block reducer (queryBlock.ts) as QueryResults drives
+// it, beside the model (queryRun.ts); what the block shows and fetches is
+// checked at every step. Pure: no server, no DOM.
 //
 // A failure prints the seed, the path, the shrunk example, every problem at
 // the first failing step and a replay line. The tally of what the examples
@@ -43,21 +44,31 @@ test("query view property", async () => {
 /** Where each label must stay above its share of EXAMPLES. */
 const REACH: Reach = {
   per: EXAMPLES,
-  // Floors: half the lowest share over 30 unseeded reach runs, 2026-11-16.
+  // Floors: half the lowest share over 30 unseeded reach runs, 2026-11-16,
+  // after the fetch steps joined the draws.
   floors: {
-    "a second edit keeps the snapshot": 0.181,
-    "columns releases a hold": 0.061,
-    "filter releases a hold": 0.115,
-    "held a column the load's records no longer hold": 0.1,
-    "held a row the load dropped": 0.154,
-    "held the table through a load whose default is blocks": 0.109,
-    "held with a view the macro sets, not the first edit's": 0.032,
-    "held with columns the macro sets": 0.093,
-    "keyed a held column by the first edit's stats": 0.116,
-    "reset releases a hold": 0.061,
-    "saved while held": 0.058,
-    "sortClick releases a hold": 0.062,
-    "view releases a hold": 0.066,
+    "a second edit keeps the snapshot": 0.142,
+    "columns releases a hold": 0.041,
+    "dropped an answer the reader left the blocks view for": 0.021,
+    "dropped an answer the records' groups made late": 0.012,
+    "dropped an older load's answer under this load's groups": 0.014,
+    "filter releases a hold": 0.078,
+    "held a column the load's records no longer hold": 0.071,
+    "held a row the load dropped": 0.115,
+    "held the table through a load whose default is blocks": 0.063,
+    "held with a view the macro sets, not the first edit's": 0.024,
+    "held with columns the macro sets": 0.075,
+    "keyed a held column by the first edit's stats": 0.084,
+    "records carried the groups while a fetch was out": 0.138,
+    "reset releases a hold": 0.042,
+    "retried a failed fetch in a new stay": 0.002,
+    "saved while held": 0.038,
+    "settled in the blocks view on a failed fetch": 0.046,
+    "settled in the blocks view with this load's groups": 0.306,
+    "sortClick releases a hold": 0.04,
+    "started a fetch once the records settled": 0.216,
+    "started a fetch with the records for a saved blocks view": 0.114,
+    "view releases a hold": 0.114,
   },
 };
 

@@ -430,15 +430,17 @@ The two hosts differ in where a write lands:
 A table's root spreads `island` (`tables/island.ts`), which stops clicks and
 unmodified keys there. So a click in a cell does not open the host block's
 text, and a key typed in a cell is not an outline key. Cmd and Ctrl chords
-go on, because the app's shortcuts listen on `window`. A chord typed in a
-cell therefore reaches `EditableBlockTree.onKeyDown`, which ignores any
-editable target (`isEditableTarget`). A click into a cell leaves a block
-selection standing, and Cmd-C or Shift-Cmd-Arrow in the cell would
-otherwise act on the selected blocks.
+go on, because the app's shortcuts listen on `window`. So
+`EditableBlockTree.onKeyDown` ignores a chord whose target is editable
+(`isEditableTarget`) or inside the island (`isInTableIsland`, which reads
+the attribute `island` sets), focused cells included. A click into a cell
+leaves a block selection standing, and Cmd-Backspace, Cmd-C or
+Shift-Cmd-Arrow there would otherwise act on the selected blocks.
 
-A column header is the sort `<button>`, so it renders a plain table's
-header links as their text (`headerSegments`): an `<a>` inside a button is
-invalid and may not get the click. Bold and code stay.
+A column header is the sort `<button>`, so `headerSegments` writes out
+everything interactive in a plain table's header as text: links, images,
+TODOs and queries. A link, button or checkbox inside a button is invalid
+and may not get the click. Emphasis, code and math stay.
 
 A plain table's cells are blocks. Each row is a child chain under the table
 block, padded with `null` to the widest row (`roamTableRows`). A write to a

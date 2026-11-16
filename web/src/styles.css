@@ -1021,6 +1021,8 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .data-table td { background: var(--color-bg-surface); }
 .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table td.editable { cursor: text; }
+/* inside the cell: the scroll box clips an edge cell's ring, and the
+ * collapsed borders of the cells beside it would cover one drawn outside */
 .data-table td.editable:focus-visible { outline: 2px solid var(--color-link);
   outline-offset: -2px; }
 /* the header is a button for keyboard access; it fills the th. The ring

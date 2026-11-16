@@ -14,7 +14,7 @@ import type { FocusTarget } from "../outline/edits";
 import type { OutlineHandlers } from "../outline/handlers";
 import { BlockEditContext, RootBlocksContext } from "../contexts";
 import { copyText } from "../copyText";
-import { isEditableTarget } from "../editableTarget";
+import { isEditableTarget, isInTableIsland } from "../editableTarget";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { BLOCK_DRAG_TYPE } from "../outline/dnd";
 import { decideSelectionKey } from "../outline/keyboardPolicy";
@@ -213,13 +213,14 @@ export function EditableBlockTree({ blocks, focus, selection = null, handlers,
   // left uncancelled for the platform. Portalled surfaces (BlockMenu, the
   // ref popover, the local-file picker) sit outside the tree's DOM but
   // inside its React tree, so their keys bubble here and are not selection
-  // commands. Nor are keys typed into a field inside a block (a table cell,
-  // a table's filter): a click there leaves the selection standing, and
-  // Shift-Cmd-Arrow or Cmd-C in it would act on the selected blocks.
+  // commands. Nor are keys typed into a field inside a block, or anywhere
+  // in a table (a focused cell, its editor, the filter): a click there
+  // leaves the selection standing, and Cmd-Backspace, Shift-Cmd-Arrow or
+  // Cmd-C there would act on the selected blocks.
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (fallback || !selection) return;
     if (!e.currentTarget.contains(e.target as Node)) return;
-    if (isEditableTarget(e.target)) return;
+    if (isEditableTarget(e.target) || isInTableIsland(e.target)) return;
     const decision = decideSelectionKey({
       key: e.key,
       metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey,

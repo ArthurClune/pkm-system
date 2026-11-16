@@ -17,8 +17,8 @@ export interface Column {
   label: string;
   editable: boolean;
   numeric?: boolean;
-  /** Shown in the header in place of `label`; a click on a link in it
-   * follows the link instead of sorting. */
+  /** Shown in the header in place of `label`, inside the sort button, so it
+   * must hold no interactive element: a click anywhere in it sorts. */
   heading?: ReactNode;
 }
 

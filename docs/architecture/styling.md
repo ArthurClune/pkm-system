@@ -136,8 +136,10 @@ clear a rounded image corner. The exceptions, each commented in `styles.css`:
 - `DatePickerPopup`'s buttons get no ring. The popup is mouse-only, and every
   element `preventDefault`s on mousedown so the textarea keeps focus.
   `styles.test.ts` asserts the absence.
-- `.data-table-sort` takes `outline-offset: -2px`, because the table's
-  scroll box clips a ring drawn outside an edge column's header.
+- `.data-table-sort`, `.data-table-menu` and a focused `td.editable` take
+  `outline-offset: -2px`. The table's scroll box clips a ring drawn outside
+  an edge column, and a cell's ring outside its collapsed border would sit
+  under the neighbouring cells.
 - `.cell-editor` sets `outline: none`. It exists only while focused, so its
   border is the focus signal.
 - `.bullet` uses the standard ring inside a `4px solid transparent` border

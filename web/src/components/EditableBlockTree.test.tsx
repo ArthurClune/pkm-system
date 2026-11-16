@@ -437,6 +437,39 @@ test("keys typed into a field inside a block leave a selection alone", () => {
   expect(writeText).not.toHaveBeenCalled();
 });
 
+// A key close leaves focus on the cell, a `<td>` that isEditableTarget does
+// not count, and the island lets chords through to the tree.
+test("chords on a focused table cell leave a selection alone", async () => {
+  const writeText = vi.fn();
+  Object.defineProperty(navigator, "clipboard", {
+    value: { writeText }, configurable: true,
+  });
+  const h = handlers();
+  const withTable = [...BLOCKS, block("tuid-t", "{{table}}", {
+    order_idx: orderIdxOf(2), children: [
+      block("tuid-th", "Name", { children: [block("tuid-th2", "Size")] }),
+      block("tuid-tr", "apache", { children: [block("tuid-tr2", "40")] }),
+    ] })];
+  render(
+    <MemoryRouter>
+      <EditableBlockTree blocks={withTable} focus={null}
+                         selection={{ anchor: uidOf("tuid-u1"),
+                                      head: uidOf("tuid-u2") }}
+                         handlers={h} readOnly={false} />
+    </MemoryRouter>);
+  await screen.findByText(/of \d+ rows/);
+  const cell = screen.getByRole("cell", { name: "apache" });
+  expect(cell).toHaveAttribute("tabindex", "0");
+  cell.focus();
+
+  fireEvent.keyDown(cell, { key: "Backspace", metaKey: true });
+  fireEvent.keyDown(cell, { key: "ArrowUp", shiftKey: true, metaKey: true });
+  fireEvent.keyDown(cell, { key: "c", metaKey: true });
+  expect(h.onDeleteBlockSelection).not.toHaveBeenCalled();
+  expect(h.onMoveSelectionUp).not.toHaveBeenCalled();
+  expect(writeText).not.toHaveBeenCalled();
+});
+
 test("selected Option+Arrow remains unhandled", () => {
   const h = handlers();
   const { container } = mountSelected(h, { anchor: uidOf("tuid-u1"), head: uidOf("tuid-u2") });

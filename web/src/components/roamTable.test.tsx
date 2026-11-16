@@ -4,6 +4,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockOp, CreateOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
+import { BlockRefContext } from "../contexts";
 import { roamTable } from "../outline/roamTableRows";
 import type { OutlineHandlers } from "../outline/handlers";
 import { block, canonicalTitleOf, orderIdxOf, uidOf } from "../test-helpers";
@@ -62,13 +63,18 @@ function table(text = "{{table}}", rows: BlockNode[] = [
   return block("tuid-table", text, { children: rows });
 }
 
+/** A ref a header can name: resolved, a BlockRef renders a link. */
+const REFS = { abcDEF123: { text: "Referenced", page_title: PAGE } };
+
 function mount(node: BlockNode, handlers: OutlineHandlers, editable = true) {
   const ui = (n: BlockNode) => {
     const tt = roamTable(n)!;
     return (
       <MemoryRouter>
-        <RoamTable node={n} rows={tt.rows} options={tt.options}
-                   handlers={handlers} editable={editable} />
+        <BlockRefContext.Provider value={REFS}>
+          <RoamTable node={n} rows={tt.rows} options={tt.options}
+                     handlers={handlers} editable={editable} />
+        </BlockRefContext.Provider>
       </MemoryRouter>
     );
   };

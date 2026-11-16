@@ -136,7 +136,7 @@ export function PlainTable({ node, rows, options, handlers,
   const dataColumns: Column[] = columns.map((c) => ({
     key: c.key, label: c.key, editable: true,
     heading: c.header
-      ? <InlineSegments segments={headerSegments(tokenizeBlock(c.header.text))} />
+      ? <InlineSegments segments={headerSegments(c.header.text)} />
       : undefined,
   }));
 

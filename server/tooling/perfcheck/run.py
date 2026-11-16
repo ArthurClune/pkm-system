@@ -31,7 +31,8 @@ from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
 from perfcheck.fixture import FROZEN_NOW
 from perfcheck.run_core import (base_servable, busy_reason, busy_report, exit_code, frontend_letters,
                                 incomparable_advice, is_test_runner, missing_import_advice, missing_pkm_import,
-                                next_steps, parse_ps, scenarios_of, sides_for, stale_entries, top_processes)
+                                next_steps, parse_context_groups, parse_ps, scenarios_of, sides_for,
+                                stale_entries, top_processes)
 from repo_git import GitError, changed_paths, git, repo_root
 
 FRONTEND_PORT = 8977
@@ -363,8 +364,51 @@ def _baseline_path(repo: Path, side: str) -> Path:
     return repo / "perf" / f"baseline-{side}.json"
 
 
+def _base_baseline(wt: Path, side: str) -> dict | None:
+    """The merge base's committed baseline, or None when it is missing or
+    unusable."""
+    try:
+        doc = json.loads(_baseline_path(wt, side).read_text())
+        doc["scenarios"].keys()
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return None
+    return doc
+
+
+def _groups(repo: Path, side: str) -> list[str]:
+    """check.ts's context groups, which `--only` expands to; the backend has
+    none."""
+    if side != "frontend":
+        return []
+    return parse_context_groups((repo / "web" / "tooling" / "perf" / "contextGroups.ts").read_text())
+
+
 def _write(path: Path, doc: dict) -> None:
     path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def _measure(runner: BackendRunner | FrontendRunner, repo: Path, wt: Path, commit: str,
+             side: str, at_merge_base: bool) -> dict:
+    """One recording run. At the merge base, scenarios `base_servable` drops
+    are measured on the branch instead and merged in, because the base's
+    server or SPA cannot run them."""
+    if not at_merge_base:
+        return runner.run(wt, None, commit)
+    base_baseline = _base_baseline(wt, side)
+    branch_path = _baseline_path(repo, side)
+    if base_baseline is None or not branch_path.exists():
+        return runner.run(wt, None, commit)
+    universe = json.loads(branch_path.read_text())["scenarios"].keys()
+    at_base = base_servable(sorted(universe), base_baseline, universe, _groups(repo, side))
+    on_branch = sorted(set(universe) - set(at_base))
+    if not on_branch:
+        return runner.run(wt, None, commit)
+    branch_doc = runner.run(repo, on_branch, head_commit(repo))
+    if not at_base:
+        return branch_doc
+    doc = runner.run(wt, at_base, commit)
+    doc["scenarios"].update(branch_doc["scenarios"])
+    return doc
 
 
 def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
@@ -375,7 +419,7 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
     else:
         wait_until_quiet(side, repo)
     wt, commit = merge_base_worktree(repo, side) if at_merge_base else (repo, head_commit(repo))
-    docs = [runner.run(wt, None, commit) for _ in range(runs)]
+    docs = [_measure(runner, repo, wt, commit, side, at_merge_base) for _ in range(runs)]
     if not allow_busy:
         ensure_still_quiet(side, repo)
     base, unstable = bootstrap(docs)
@@ -421,9 +465,8 @@ def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
         mb = None
         if survivors:
             wt, mb_commit = merge_base_worktree(repo, side)
-            base_path = _baseline_path(wt, side)
-            base_baseline = json.loads(base_path.read_text()) if base_path.exists() else None
-            served = base_servable(scenarios_of(survivors), base_baseline)
+            served = base_servable(scenarios_of(survivors), _base_baseline(wt, side),
+                                   baseline["scenarios"].keys(), _groups(repo, side))
             if served:
                 mb = runner.run(wt, served, mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)

@@ -273,18 +273,86 @@ def test_base_servable_drops_scenarios_the_base_never_recorded():
     assert run_core.base_servable(["a/1", "q/new"], None) == ["a/1", "q/new"]
 
 
-def test_check_skips_merge_base_for_a_branch_new_scenario(check, tmp_path, capsys):
+def test_base_servable_drops_a_whole_context_group():
+    # check.ts runs every scenario of a group's letters, so a group with a
+    # scenario the base never recorded cannot be run at the base at all
+    universe = ["H/cold", "W/warm", "S/new", "S/old", "J/type", "R/x"]
+    base = _doc({"H/cold": {"n": 1}, "W/warm": {"n": 1}, "S/old": {"n": 1},
+                 "J/type": {"n": 1}, "R/x": {"n": 1}})
+    kept = run_core.base_servable(["H/cold", "S/old", "J/type", "R/x"], base,
+                                  universe, ["HW", "ABFI", "JKS", "R"])
+    assert kept == ["H/cold", "R/x"]
+
+
+def test_parse_context_groups_reads_the_typescript_constant():
+    src = 'export const LETTERS = "H,W";\nexport const CONTEXT_GROUPS = ["HW", "R"];\n'
+    assert run_core.parse_context_groups(src) == ["HW", "R"]
+    real = Path(__file__).resolve().parents[2] / "web" / "tooling" / "perf" / "contextGroups.ts"
+    assert run_core.parse_context_groups(real.read_text())
+
+
+def _branch_new_check(check, tmp_path, head_docs, mb_docs=()):
+    """`check`, with q/new recorded in the branch baseline only."""
     (tmp_path / "mb" / "perf").mkdir(parents=True)
     (tmp_path / "mb" / "perf" / "baseline-backend.json").write_text(
-        json.dumps(_doc({"a/1": {"n": 10, "k": 10}})))
-    base = json.loads((tmp_path / "perf" / "baseline-backend.json").read_text())
+        json.dumps(_doc({"a/1": {"n": 10, "k": 10}, "b/2": {"n": 5}})))
+    path = tmp_path / "perf" / "baseline-backend.json"
+    base = json.loads(path.read_text())
     base["scenarios"]["q/new"] = {"n": {"class": "exact", "value": 3}}
-    (tmp_path / "perf" / "baseline-backend.json").write_text(json.dumps(base))
-    rc, runner, _ = check([_doc({"a/1": {"n": 10, "k": 10}, "b/2": {"n": 5}, "q/new": {"n": 4}}),
-                           _doc({"q/new": {"n": 4}})])
+    path.write_text(json.dumps(base))
+    return check(head_docs, mb_docs)
+
+
+def test_check_skips_merge_base_for_a_branch_new_scenario(check, tmp_path, capsys):
+    rc, runner, _ = _branch_new_check(
+        check, tmp_path,
+        [_doc({"a/1": {"n": 10, "k": 10}, "b/2": {"n": 5}, "q/new": {"n": 4}}),
+         _doc({"q/new": {"n": 4}})])
     assert rc == 1
     assert runner.mb_only == []
     assert "| q/new | n | 3 | 4 | regression |" in capsys.readouterr().out
+
+
+def test_check_measures_only_the_served_survivors_at_the_merge_base(check, tmp_path, capsys):
+    rc, runner, _ = _branch_new_check(
+        check, tmp_path,
+        [_doc({"a/1": {"n": 11, "k": 10}, "b/2": {"n": 5}, "q/new": {"n": 4}}),
+         _doc({"a/1": {"n": 11, "k": 10}, "q/new": {"n": 4}})],
+        [_doc({"a/1": {"n": 10, "k": 10}})])
+    assert rc == 1
+    assert runner.mb_only == [["a/1"]]
+    out = capsys.readouterr().out
+    assert "| q/new | n | 3 | 4 | regression |" in out
+    assert "| a/1 | n | 10 | 11 | regression |" in out
+
+
+def test_a_malformed_base_baseline_reads_as_unknown(tmp_path):
+    (tmp_path / "perf").mkdir()
+    (tmp_path / "perf" / "baseline-backend.json").write_text("{not json")
+    assert run._base_baseline(tmp_path, "backend") is None
+    (tmp_path / "perf" / "baseline-backend.json").write_text("{}")
+    assert run._base_baseline(tmp_path, "backend") is None
+
+
+def test_rebaseline_measures_a_branch_new_scenario_on_the_branch(tmp_path, monkeypatch):
+    (tmp_path / "perf").mkdir()
+    (tmp_path / "mb" / "perf").mkdir(parents=True)
+    (tmp_path / "perf" / "baseline-backend.json").write_text(
+        json.dumps(_doc({"a/1": {"n": 1}, "q/new": {"n": 3}})))
+    (tmp_path / "mb" / "perf" / "baseline-backend.json").write_text(
+        json.dumps(_doc({"a/1": {"n": 1}})))
+    monkeypatch.setattr(run, "head_commit", lambda repo: "head")
+    monkeypatch.setattr(run, "merge_base_worktree", lambda repo, side: (tmp_path / "mb", "base"))
+    runner = _FakeRunner([_doc({"q/new": {"n": 4}})] * 2, [_doc({"a/1": {"n": 2}})] * 2,
+                         tmp_path / "mb")
+    monkeypatch.setattr(run, "_runner", lambda repo, side: runner)
+    _load(monkeypatch, [0.5])
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    assert runner.mb_only == [["a/1"]] * 2
+    assert runner.head_only == [["q/new"]] * 2
+    written = json.loads((tmp_path / "perf" / "baseline-backend.json").read_text())
+    assert written["scenarios"]["a/1"]["n"]["value"] == 2
+    assert written["scenarios"]["q/new"]["n"]["value"] == 4
 
 
 def test_check_stale_baseline(check, capsys):

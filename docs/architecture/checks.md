@@ -120,7 +120,7 @@ it on the branch and run it at the merge base:
 |---|---|---|---|
 | any | the baseline accepts it | not run | `unstable` |
 | `exact`, `band` | still worse | also worse than the baseline | `stale-baseline` |
-| `exact`, `band` | still worse | not worse | `regression` |
+| `exact`, `band` | still worse | not run, or not worse | `regression` |
 | `timing` | still worse | missing, or the re-run is clearly slower than it | `regression` |
 | `timing` | still worse | the re-run is not clearly slower than it, and also worse than the baseline | `stale-baseline` |
 | `timing` | still worse | the re-run is not clearly slower than it, and not worse than the baseline | `unstable` |
@@ -139,9 +139,14 @@ Rules a change to the gate must keep:
   machine whose cores stay clocked up. So every measuring run waits for a
   quiet machine (`wait_until_quiet`) and is refused if load rose during it
   (`ensure_still_quiet`).
-- A scenario absent from the merge base's committed baseline was added on the
-  branch, and the base's server cannot serve it. `base_servable` drops it from
-  the merge-base run, so it is judged against the branch baseline alone.
+- A scenario absent from the merge base's committed baseline is taken as
+  added on the branch, and `base_servable` keeps it out of the merge-base run
+  (the frontend drops its whole context group, since `check.ts` runs the group
+  together; `--rebaseline` measures those scenarios on the branch instead).
+  A survivor with no merge-base run can only read `regression`, so a wrong
+  guess misreads a stale baseline as a regression and never passes one. A
+  timing in that position is judged against the branch baseline, without the
+  shared-load comparison, so a load artefact can read as `regression`.
 - A merge-base run measures the base's product with the branch's harness, so
   a harness change reads as `stale-baseline`. The harness may import only
   `pkm` names the base has (`missing_pkm_import`). The base's SPA must still
@@ -153,8 +158,8 @@ Rules a change to the gate must keep:
   expands) are pinned beside the code that needs them. The fixture build
   pins the `db_generation` the schema seeds randomly (`FIXTURE_DB_GENERATION`),
   because the gzipped sync snapshot carries it and a fresh value moves
-  `api_bytes` by a byte or two. Metrics that stay
-  noisy under these controls are classed `band` or `timing`.
+  `api_bytes` by a byte or two. Metrics that stay noisy under these controls
+  are classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)
   decides comparability, so a schema or query change is measured rather than

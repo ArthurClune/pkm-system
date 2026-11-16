@@ -53,11 +53,12 @@ _BLOCK_OP: TypeAdapter[BlockOp] = TypeAdapter(BlockOp)
 
 LOCK_WAIT_S = 20 * 60  # a frontend confirmation takes minutes, not this long
 UNUSED_FOR_S = 7 * 86_400  # a run marks what it uses; no run lasts this long
+ORPHAN_AFTER_S = 3600  # builds take seconds under the lock; older temps are dead
+
 # The schema seeds db_generation randomly and the sync snapshot carries it,
 # so its gzip size would move by a byte or two per rebuild and read as an
 # api_bytes regression. Pinned here, never in the product schema.
 FIXTURE_DB_GENERATION = "0" * 32
-ORPHAN_AFTER_S = 3600  # builds take seconds under the lock; older temps are dead
 
 
 class CacheLockTimeout(RuntimeError):

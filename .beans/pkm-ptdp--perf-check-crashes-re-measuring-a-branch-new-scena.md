@@ -31,4 +31,6 @@ Symptom: `perf/check.sh backend` exits 2 with `RuntimeError: query/records: HTTP
 
 Cause: `do_check` re-measured every survivor at the merge-base worktree, whose server has no route for a branch-new scenario.
 
-Fix: `run_core.base_servable` keeps only scenarios present in the merge base's own committed `perf/baseline-<side>.json` (deterministic, no 404 catch; an unreadable base baseline drops nothing). Dropped scenarios get no merge-base run and are judged against the branch baseline, so the table still prints. Rule: docs/architecture/checks.md § Performance gate.
+Fix: `run_core.base_servable` keeps only scenarios present in the merge base's own committed `perf/baseline-<side>.json` (deterministic, no 404 catch; a missing or malformed base baseline drops nothing). Dropped scenarios get no merge-base run and are judged against the branch baseline, so the table still prints. Rule: docs/architecture/checks.md § Performance gate.
+
+Round 2: the frontend drops a scenario's whole context group (parsed from `contextGroups.ts`), since check.ts runs a group together; `--rebaseline` measures dropped scenarios on the branch and merges them into the recording.

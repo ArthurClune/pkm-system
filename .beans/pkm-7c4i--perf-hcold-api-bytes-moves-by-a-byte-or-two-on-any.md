@@ -16,6 +16,6 @@ Symptom: perf frontend H/cold `api_bytes` read as an exact-class regression of a
 
 Cause: the schema seeds `db_generation` with `randomblob(16)`, the sync snapshot carries it, and the gzip size of the snapshot moves with the random hex.
 
-Fix: `perfcheck/build.py` `build()` pins `db_generation` to `FIXTURE_DB_GENERATION` right after `init_db`; the product schema is untouched and encoded bytes are still what is measured. Covered by `test_build_pins_db_generation`. The measured value changes once because of the pin, so frontend perf needs one rebaseline when this merges.
+Fix: `perfcheck/build.py` `build()` pins `db_generation` to `FIXTURE_DB_GENERATION` right after `init_db`; the product schema is untouched and encoded bytes are still what is measured. Covered by `test_build_pins_db_generation`. The pin shrinks the gzipped snapshot, so the next frontend check reads `api_bytes` as an improvement and ratchets it; no `--rebaseline` is needed.
 
 Rule: docs/architecture/checks.md § Performance gate (fixture determinism).

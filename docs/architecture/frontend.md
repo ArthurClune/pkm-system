@@ -186,6 +186,22 @@ the title it folds to (`normalizeRefTitle`). PageView, a sidebar panel and the
 Journal key their outline session by the page's stored title, whatever
 spelling opened them (`outline/titleKeys.props.test.tsx`).
 
+### Scroll on back and forward
+
+The window is the main pane's scroller, and `useHistoryScrollRestore.ts`
+restores its offset per history entry, with `history.scrollRestoration` set
+to `manual`. The browser's own restoration runs at popstate, before React
+renders the entry, so a view that renders a placeholder first (PageView's
+"Loading…") clamps it to 0. The hook re-applies the offset as the main pane
+grows, until it holds or the reader scrolls. A link to a new page lands at
+the top.
+
+An offset is keyed by the entry's key in `history.state`. react-router writes
+none for a tab's first entry (its location key is `"default"`), so the hook
+mints one there. A view that scrolls to a target of its own on arrival checks
+`useRestoresHistoryScroll()` first, as PageView does for a `#uid`. Otherwise
+its jump overrides the restored offset.
+
 ### Navigation chrome
 
 The left nav holds pinned pages (`/api/sidebar`), app destinations and the

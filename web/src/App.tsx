@@ -33,6 +33,7 @@ import { Files } from "./views/Files";
 import { Help } from "./views/Help";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
+import { useHistoryScrollRestore } from "./useHistoryScrollRestore";
 import { Settings } from "./views/Settings";
 
 interface SidebarEntry {
@@ -111,6 +112,8 @@ export function App() {
   const appShellRef = useRef<HTMLDivElement>(null);
   const bannerStackRef = useRef<HTMLDivElement>(null);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  useHistoryScrollRestore(mainRef);
   const navWasOpenRef = useRef(false);
   const navigate = useNavigate();
   useRouteTitle();
@@ -257,7 +260,7 @@ export function App() {
               </nav>
               <div className="content-area">
                 <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
-                <main className="main-pane">
+                <main className="main-pane" ref={mainRef}>
                   <MainRoutes />
                 </main>
               </div>

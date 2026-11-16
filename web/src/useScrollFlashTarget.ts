@@ -40,7 +40,7 @@ export const FLASH_MS = 1600;
 /** How long the layout must stay still before the target is let go. */
 export const PIN_QUIET_MS = 2000;
 
-const READER_INPUT = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+export const READER_INPUT = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
 
 export function useScrollFlashTarget(
   uid: BlockUid | null | undefined,

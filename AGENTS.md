@@ -95,7 +95,7 @@ Production runs on this machine: a launchd service serving `~/.config/pkm/app` o
 
 - Deploy only with `~/.config/pkm/app/deploy/update.sh` (it refuses to run from another checkout). It deploys `main` of the local checkout, so merge first; no push is needed. Verify the deploy instead of trusting its "updated to" line. [deploy/README.md § Updating](deploy/README.md#updating) has the recipe, including headless runs.
 - Stop servers you started by PID, never `pkill -f <pattern>`: other sessions run servers matching the same pattern.
-- Handover notes go in `docs/superpowers/handoffs/` (gitignored). Specs and plans are committed; handoffs never are. A bean never names or points to a handover note: handovers live only in this checkout and are deleted once their work lands, so anything a bean needs (evidence, a decision, a repro) goes in the bean itself.
+- Handover notes go in `docs/superpowers/handoffs/` (gitignored). Specs and plans are committed; handoffs never are. A bean never names or points to a handover note: handovers live only in this checkout and are deleted once their work lands, so anything a bean needs (evidence, a decision, a repro) goes in the bean itself. `.githooks/pre-commit` rejects a bean that mentions `handoffs`.
 
 ### Skills
 

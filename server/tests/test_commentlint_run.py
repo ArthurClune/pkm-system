@@ -102,6 +102,16 @@ def test_the_hook_is_executable():
     assert HOOK.stat().st_mode & 0o111
 
 
+def test_a_staged_bean_pointing_to_a_handover_fails_with_its_remedy(repo: Path, capsys):
+    write(repo, ".beans/pkm-ab12--a-bean.md", "Evidence: docs/superpowers/handoffs/a.md\n")
+    git(repo, "add", ".beans")
+    assert main([], repo) == 1
+    err = capsys.readouterr().err
+    assert err.splitlines()[0] == "pre-commit: beans must not point to handover notes."
+    assert ".beans/pkm-ab12--a-bean.md:1: bean-handover:" in err
+    assert "put what the bean needs in the bean" in err
+
+
 def test_the_tracked_tree_is_clean(capsys):
     """The sweep the hook would run, over this checkout: a clone that never set
     core.hooksPath, and a merge commit (which no pre-commit hook sees), still

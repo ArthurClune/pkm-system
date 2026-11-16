@@ -1,8 +1,8 @@
 # pattern: Imperative Shell
 """`.githooks/pre-commit` entry point: lint (comment rot, brand
-names and regex anchors) the staged copy of every staged file the rules
-cover, or with `--all` the working copy of every tracked file, and print the
-report to stderr.
+names, regex anchors and beans' handover pointers) the staged copy of every
+staged file the rules cover, or with `--all` the working copy of every
+tracked file, and print the report to stderr.
 
 The staged copy, not the working tree, is what the commit will contain, so
 a partially staged file is judged on what is going in."""
@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from beanlint import core as beanlint
 from brandlint import core as brandlint
 from brandlint.registry import load_registry
 from regexlint import core as regexlint
@@ -61,7 +62,9 @@ def main(argv: list[str], repo: Path | None = None) -> int:
             violations.extend(check_text(path, text))
             violations.extend(brandlint.check_text(path, text, registry))
             violations.extend(regexlint.check_text(path, text))
-    sys.stderr.write(format_report(violations, brandlint.RULES, regexlint.RULES))
+        elif beanlint.is_scanned(path):
+            violations.extend(beanlint.check_text(path, read(repo, path)))
+    sys.stderr.write(format_report(violations, brandlint.RULES, regexlint.RULES, beanlint.RULES))
     return 1 if violations else 0
 
 

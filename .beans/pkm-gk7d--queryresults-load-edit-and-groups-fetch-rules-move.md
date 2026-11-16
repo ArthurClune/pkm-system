@@ -1,11 +1,11 @@
 ---
 # pkm-gk7d
 title: QueryResults' load, edit and groups-fetch rules move into one pure reducer
-status: todo
+status: in-progress
 type: task
 priority: low
 created_at: 2026-11-16T21:55:59Z
-updated_at: 2026-11-16T21:55:59Z
+updated_at: 2026-11-16T22:00:27Z
 ---
 
 An FCIS review of the query-table hold work found two gaps that one change closes.

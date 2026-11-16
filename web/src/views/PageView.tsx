@@ -11,6 +11,7 @@ import { titleFromPathname } from "../paths";
 import { useResync } from "../sync/SyncProvider";
 import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
+import { useRestoresHistoryScroll } from "../useHistoryScrollRestore";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "./EditablePage";
 
@@ -35,8 +36,10 @@ export function PageView() {
   // hook. A uid inside a collapsed subtree is revealed first: EditablePage
   // expands its hiding ancestors and reports when the rows have rendered,
   // which re-runs the hook. The location key makes a repeat click on the
-  // same link jump again.
-  const target = hash.length > 1 ? parseBlockUid(hash.slice(1)) : null;
+  // same link jump again. Back or forward to an entry the reader scrolled
+  // leaves the block alone: the offset they left it at is restored instead.
+  const restoresScroll = useRestoresHistoryScroll();
+  const target = hash.length > 1 && !restoresScroll ? parseBlockUid(hash.slice(1)) : null;
   const [revealed, setRevealed] = useState(0);
   const onRevealed = useCallback(() => setRevealed((n) => n + 1), []);
   useScrollFlashTarget(target, payload, { navigation: key, revealed });

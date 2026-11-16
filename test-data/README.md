@@ -2,7 +2,7 @@
 
 This directory contains a small synthetic graph and valid SVG/PDF assets for
 selective automated tests, local development and the `verify` skill's scratch
-server. It covers journals, links and backlinks, block references and embeds,
+server. It covers journals, links and backlinks, block references,
 nested/numbered/collapsed blocks, markdown and `{{table}}` tables, code,
 Mermaid, math fallback, TODO and DONE items, Unicode titles, local assets,
 `Paper/` and `Book/` pages laid out like their templates in

@@ -1,13 +1,15 @@
 // pattern: Functional Core
-// Runs one drawn example through a query block's view the way QueryResults
-// drives it, beside the model (queryModel.ts), and checks what the block
-// shows after every step. A load holds records (holdRecords) under the
-// rows held when it lands and steps the view with the saved view the
-// macro's options and the new defaults give; Save writes the options and
-// loads them back; an edit steps the view with what is on screen
-// (editedEvent), and is skipped where no cell can be written. Stops at the
-// first step with a problem and returns every problem found there, each
-// led by the invariant it breaks:
+// Runs one drawn example through a query block's reducer (queryBlock.ts)
+// the way QueryResults drives it, beside the model (queryModel.ts) and the
+// requests out (queryFetch.ts), and checks what the block shows and
+// fetches after every step. A records answer lands through the reducer,
+// which holds records under the rows held then and steps the view with
+// the saved view the macro's options and the new defaults give; Save
+// writes the options and they come back as the macro's; an edit steps the
+// view with what is on screen (editedEvent), and is skipped where no cell
+// can be written; after each step the groups effect starts any fetch due.
+// Stops at the first step with a problem and returns every problem found
+// there, each led by the invariant it breaks:
 // - frozen: rows are held exactly when the model says (stepView's rule,
 //   whose mutants are in teeth.prop.ts);
 // - held-iff-frozen: the snapshot is set exactly while the rows are held;
@@ -21,33 +23,24 @@
 // - released: with no rows held, the live view, its columns, and the
 //   current records through the live filter and sort. The rows are judged
 //   by shownRows itself: this suite checks the hold, and the filter and
-//   sort have their own unit tests and the table view property.
-import type { QueryRecordModel } from "../../api/payloads";
+//   sort have their own unit tests and the table view property;
+// - the fetch rules, listed in queryFetch.ts.
+import type { QueryRecordsPayload } from "../../api/payloads";
 import type { MacroOptions } from "../../grammar/macroOptions";
 import {
-  holdRecords, queryColumns, queryDefaults, shownRows,
-} from "../../tables/queryView";
-import {
-  editedEvent, initialQueryView, showQuery, stepQueryView,
-  type QueryShown, type QueryViewState,
-} from "../../tables/queryViewState";
-import {
-  optionsFromView, viewFromOptions, type ViewDefaults,
-} from "../../tables/viewState";
+  initialQueryBlock, QUERY_BLOCK, type QueryBlock, type QueryBlockEvent,
+  type QueryBlockState,
+} from "../../tables/queryBlock";
+import { queryColumns, queryDefaults, shownRows } from "../../tables/queryView";
+import { editedEvent, type QueryShown } from "../../tables/queryViewState";
+import { optionsFromView, viewFromOptions } from "../../tables/viewState";
 import type { QueryExample, QueryStep } from "./queryArbitraries";
+import {
+  answerGroups, checkStall, loadOf, mountNet, startDueFetches, type Net,
+} from "./queryFetch";
 import {
   edited, expected, loadedStep, readerStep, type QueryModel,
 } from "./queryModel";
-
-export interface QueryMachine {
-  readonly step: typeof stepQueryView;
-  readonly show: typeof showQuery;
-  readonly hold: typeof holdRecords;
-}
-
-export const REAL_QUERY: QueryMachine = {
-  step: stepQueryView, show: showQuery, hold: holdRecords,
-};
 
 export interface QueryRunResult {
   readonly problems: readonly string[];
@@ -55,96 +48,173 @@ export interface QueryRunResult {
   readonly reached: ReadonlySet<string>;
 }
 
-interface Block {
-  qv: QueryViewState;
-  options: MacroOptions;
-  keys: QueryExample["first"]["keys"];
-  defaults: ViewDefaults;
-  records: readonly QueryRecordModel[];
-  held: ReadonlyMap<string, QueryRecordModel>;
+interface Run {
+  readonly block: QueryBlock;
+  state: QueryBlockState;
+  model: QueryModel;
+  readonly net: Net;
+  /** Problems found inside a step, by the fetch rules. */
+  readonly problems: string[];
+  readonly reached: Set<string>;
 }
 
 const show = (v: unknown): string => JSON.stringify(v);
 
-const shownOf = (m: QueryMachine, b: Block): QueryShown =>
-  m.show(b.qv, b.options, b.keys, b.records, b.held);
+function shownOf(r: Run): QueryShown {
+  const shown = r.block.shown(r.state);
+  if (shown === null) throw new Error("the block shows nothing once loaded");
+  return shown;
+}
+
+function loadedOf(s: QueryBlockState) {
+  if (s.loaded === null || s.qv === null) {
+    throw new Error("the block holds no view once loaded");
+  }
+  return { loaded: s.loaded, qv: s.qv };
+}
 
 export function runQueryExample(example: QueryExample,
-                                machine: QueryMachine = REAL_QUERY): QueryRunResult {
-  const reached = new Set<string>();
+                                block: QueryBlock = QUERY_BLOCK): QueryRunResult {
   const defaults = queryDefaults(example.first);
   const saved = viewFromOptions(example.options, defaults);
-  let block: Block = {
-    qv: initialQueryView(saved), options: example.options,
-    keys: example.first.keys, defaults, records: example.first.records,
-    held: new Map(),
+  const r: Run = {
+    block, state: initialQueryBlock(example.options),
+    model: { view: { saved, live: saved }, options: example.options,
+             keys: example.first.keys, records: example.first.records,
+             first: null },
+    net: mountNet(), problems: [], reached: new Set(),
   };
-  let model: QueryModel = {
-    view: { saved, live: saved }, options: example.options,
-    keys: example.first.keys, records: example.first.records, first: null,
-  };
-  for (const [i, step] of example.steps.entries()) {
-    const prior = model;
-    [block, model] = apply(machine, block, model, step);
-    const problems = check(machine, block, model);
-    if (problems.length > 0) {
-      return { problems: problems.map((p) => `${p} (step ${i})`), reached };
-    }
-    label(reached, step, prior, model);
+  effects(r, example.options.view === "blocks");
+  landRecords(r, example.first, false);
+  effects(r);
+  const mounted = [...r.problems, ...checkStall(r.state, r.net, r.reached)];
+  if (mounted.length > 0) {
+    return { problems: mounted.map((p) => `${p} (mount)`), reached: r.reached };
   }
-  return { problems: [], reached };
+  for (const [i, step] of example.steps.entries()) {
+    const prior = r.model;
+    apply(r, step);
+    effects(r);
+    const problems = [...r.problems, ...check(r),
+                      ...checkStall(r.state, r.net, r.reached)];
+    if (problems.length > 0) {
+      return { problems: problems.map((p) => `${p} (step ${i})`),
+               reached: r.reached };
+    }
+    label(r.reached, step, prior, r.model);
+  }
+  return { problems: [], reached: r.reached };
 }
 
-function load(m: QueryMachine, b: Block, model: QueryModel,
-              options: MacroOptions,
-              payload?: QueryExample["first"]): [Block, QueryModel] {
-  const data = payload ?? { keys: b.keys, records: b.records };
-  const defaults = payload === undefined ? b.defaults : queryDefaults(payload);
-  const saved = viewFromOptions(options, defaults);
-  const held = payload === undefined ? b.held
-    : m.hold(b.records, b.held, payload.records, b.qv.view.frozen);
-  return [
-    { qv: m.step(b.qv, { kind: "loaded", saved }), options, keys: data.keys,
-      defaults, records: data.records, held },
-    loadedStep(model, saved, { options, keys: data.keys, records: data.records }),
-  ];
+const dispatch = (r: Run, e: QueryBlockEvent): void => {
+  r.state = r.block.step(r.state, e);
+};
+
+/** The groups effect; `wants` is the blocks view shown, from the model
+ * once the first records landed. */
+function effects(r: Run, wants = expected(r.model).view === "blocks"): void {
+  r.state = startDueFetches(r.block, r.state, r.net, wants,
+                            r.model.options.view === "blocks", r.problems,
+                            r.reached);
 }
 
-function apply(m: QueryMachine, b: Block, model: QueryModel,
-               step: QueryStep): [Block, QueryModel] {
+/** The macro's options, from an edit elsewhere or a Save. */
+function setOptions(r: Run, options: MacroOptions): void {
+  const { loaded } = loadedOf(r.state);
+  dispatch(r, { kind: "options", options });
+  r.model = loadedStep(r.model, viewFromOptions(options, loaded.defaults),
+                       { options });
+}
+
+/** The records answer for the current load: `step` false for the first,
+ * which the model starts from. */
+function landRecords(r: Run, payload: QueryRecordsPayload, step = true): void {
+  const { gen } = r.net;
+  r.net.recordsOut = null;
+  r.net.settled.add(gen);
+  const groups = payload.groups === null ? null : [...payload.groups];
+  if (groups !== null) {
+    r.net.answers.set(groups, gen);
+    r.net.carried.add(gen);
+    if (r.net.groupsOut !== null) {
+      r.reached.add("records carried the groups while a fetch was out");
+    }
+  }
+  dispatch(r, { kind: "recordsLanded", load: loadOf(gen),
+                payload: { ...payload, groups } });
+  if (!step) return;
+  const saved = viewFromOptions(r.model.options, queryDefaults(payload));
+  r.model = loadedStep(r.model, saved,
+                       { keys: payload.keys, records: payload.records });
+}
+
+function resync(r: Run): void {
+  r.net.gen += 1;
+  r.net.recordsOut = r.net.gen;
+}
+
+function apply(r: Run, step: QueryStep): void {
   switch (step.kind) {
     case "edit": {
-      const shown = shownOf(m, b);
-      if (shown.view !== "table" || shown.rows.length === 0) return [b, model];
-      const e = editedEvent(shown, b.keys);
+      const shown = shownOf(r);
+      if (shown.view !== "table" || shown.rows.length === 0) return;
+      const e = editedEvent(shown, loadedOf(r.state).loaded.keys);
       const rows = e.kind === "edited" ? e.visibleIds : [];
-      return [{ ...b, qv: m.step(b.qv, e) }, edited(model, rows)];
+      dispatch(r, { kind: "view", event: e });
+      r.model = edited(r.model, rows);
+      return;
     }
     case "load":
-      return load(m, b, model, b.options, step.payload);
+      resync(r);
+      effects(r);
+      landRecords(r, step.payload);
+      return;
+    case "resync":
+      resync(r);
+      return;
+    case "answer":
+      if (r.net.recordsOut === null) return;
+      if (step.payload !== null) {
+        landRecords(r, step.payload);
+        return;
+      }
+      r.net.recordsOut = null;
+      r.net.settled.add(r.net.gen);
+      dispatch(r, { kind: "recordsFailed", load: loadOf(r.net.gen),
+                    error: "records failed" });
+      return;
+    case "groups":
+      r.state = answerGroups(r.block, r.state, r.net, step.ok, r.problems,
+                             r.reached);
+      return;
     case "macro":
-      return load(m, b, model, step.options);
+      setOptions(r, step.options);
+      return;
     case "saved": {
-      const next: [Block, QueryModel] = [
-        { ...b, qv: m.step(b.qv, step) }, readerStep(model, step)];
-      return load(m, next[0], next[1],
-                  optionsFromView(next[0].qv.view.live, b.defaults));
+      dispatch(r, { kind: "view", event: step });
+      r.model = readerStep(r.model, step);
+      const { loaded, qv } = loadedOf(r.state);
+      setOptions(r, optionsFromView(qv.view.live, loaded.defaults));
+      return;
     }
     default:
-      return [{ ...b, qv: m.step(b.qv, step) }, readerStep(model, step)];
+      dispatch(r, { kind: "view", event: step });
+      r.model = readerStep(r.model, step);
   }
 }
 
-function check(m: QueryMachine, b: Block, model: QueryModel): string[] {
+function check(r: Run): string[] {
   const problems: string[] = [];
-  const shown = shownOf(m, b);
+  const { model } = r;
+  const { qv } = loadedOf(r.state);
+  const shown = shownOf(r);
   const want = expected(model);
-  const frozen = b.qv.view.frozen !== null;
+  const frozen = qv.view.frozen !== null;
   if (frozen !== (want.rows !== null)) {
-    problems.push(`frozen: ${show(b.qv.view.frozen)}, model ${show(want.rows)}`);
+    problems.push(`frozen: ${show(qv.view.frozen)}, model ${show(want.rows)}`);
   }
-  if ((b.qv.held !== null) !== frozen) {
-    problems.push(`held-iff-frozen: held ${show(b.qv.held)}, frozen ${frozen}`);
+  if ((qv.held !== null) !== frozen) {
+    problems.push(`held-iff-frozen: held ${show(qv.held)}, frozen ${frozen}`);
   }
   const field = (follows: boolean): string =>
     want.rows === null ? "released" : follows ? "hold" : "chosen";

@@ -31,11 +31,12 @@ const SOURCE = "Source";
  * key (the attribute page). */
 export interface QueryColumn { name: string; label: string; key: string }
 
+/** The server sends the groups exactly when no record has a `::` cell,
+ * which is when the default view is blocks. */
 export function queryDefaults(p: QueryRecordsPayload): ViewDefaults {
   const labelOf = new Map(p.keys.map((k) => [k.key as string, k.label]));
   return {
-    view: p.records.some((r) => Object.keys(r.cells).length > 0)
-      ? "table" : "blocks",
+    view: p.groups === null ? "table" : "blocks",
     columns: defaultColumns(p).map((k) => labelOf.get(k) ?? k),
   };
 }
@@ -65,17 +66,41 @@ export interface ShownRow {
 }
 
 /** `matching` is the "N" of "N of M results": the rows shown that still
- * match the filter. */
+ * match the filter. `held` is holdRecords' answer. */
 export function shownRows(
   records: readonly QueryRecordModel[], columns: readonly QueryColumn[],
   live: ViewFields, frozen: readonly string[] | null,
+  held?: ReadonlyMap<string, QueryRecordModel>,
 ): { rows: ShownRow[]; matching: number } {
   const labels = new Map(columns.map((c) => [c.key, c.label]));
   const { rows, matching } = viewRows(
     records, (r) => r.key, (r) => recordRow(r, labels),
-    [RESULT, SOURCE, ...columns.map((c) => c.name)], live, frozen);
+    [RESULT, SOURCE, ...columns.map((c) => c.name)], live, frozen, held);
   return { rows: rows.map(({ item, row, stale }) => ({ record: item, row, stale })),
            matching };
+}
+
+/** The records a frozen view goes on showing after a refetch to `next`:
+ * each frozen id `next` lacks keeps its last record, from `prev` or from
+ * `held`, so an edit that makes a row stop matching the query itself does
+ * not take the row out from under the reader. An id `next` returns again
+ * shows `next`'s record. While unfrozen it keeps what this refetch dropped
+ * from `prev`, which the view ignores: an edit whose freeze is not yet
+ * committed when the refetch lands still finds the row it froze. */
+export function holdRecords(
+  prev: readonly QueryRecordModel[],
+  held: ReadonlyMap<string, QueryRecordModel>,
+  next: readonly QueryRecordModel[], frozen: readonly string[] | null,
+): Map<string, QueryRecordModel> {
+  const out = new Map<string, QueryRecordModel>();
+  const returned = new Set(next.map((r) => r.key));
+  const last = new Map(frozen === null ? [] : held);
+  for (const r of prev) last.set(r.key, r);
+  for (const key of frozen ?? last.keys()) {
+    const r = last.get(key);
+    if (!returned.has(key) && r !== undefined) out.set(key, r);
+  }
+  return out;
 }
 
 const sameOptions = (a: MacroOptions, b: MacroOptions): boolean =>
@@ -164,7 +189,7 @@ export function patchRecord(r: QueryRecordModel, key: string,
       const start = op.text.indexOf("::") + 2;
       const made: RecordCell = {
         uid: op.uid, key_raw: op.text.slice(0, start - 2), text: op.text,
-        value: valueOf(op.text, start), value_start: start, child_count: 0,
+        value: valueOf(op.text, start), value_start: start,
       };
       next = {
         ...next, cells: { ...next.cells, [key]: made },

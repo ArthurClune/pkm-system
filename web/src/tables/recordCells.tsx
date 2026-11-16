@@ -57,6 +57,7 @@ export function RecordSource({ record }: { record: QueryRecordModel }) {
 
 export function CellValue({ cell, depth }: { cell: RecordCell; depth: number }) {
   const lines = 1 + (cell.extra_uids ?? []).length;
+  const children = cell.child_count ?? 0;
   return (
     <>
       <InlineSegments segments={tokenizeBlock(cell.value)} depth={depth} />
@@ -66,10 +67,10 @@ export function CellValue({ cell, depth }: { cell: RecordCell; depth: number }) 
           {lines} lines
         </span>
       )}
-      {cell.child_count > 0 && (
+      {children > 0 && (
         <span className="query-cell-badge"
               title="Lines under this value, not shown or edited here">
-          +{cell.child_count} lines
+          +{children} lines
         </span>
       )}
     </>

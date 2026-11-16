@@ -746,6 +746,7 @@
     "/api/query/records": {
       "get": {
         "summary": "Query Records",
+        "description": "`/api/query`'s results as table records. When no record has a `::`\ncell the payload also carries `groups`, the grouped blocks\n`/api/query` returns for the same expression.",
         "operationId": "query_records_api_query_records_get",
         "parameters": [
           {
@@ -4449,16 +4450,31 @@
           "total": {
             "type": "integer",
             "title": "Total"
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/QueryGroup"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groups"
           }
         },
         "type": "object",
         "required": [
           "records",
           "keys",
-          "total"
+          "total",
+          "groups"
         ],
         "title": "QueryRecordsPayload",
-        "description": "GET /api/query/records: one record per row, in the order of each\none's first result, and the column candidates ranked by how many\nrecords hold them. `total` counts records, not results."
+        "description": "GET /api/query/records: one record per row, in the order of each\none's first result, and the column candidates ranked by how many\nrecords hold them. `total` counts records, not results. `groups` is\nwhat `GET /api/query` returns as `groups` for the same expression,\npresent (an empty list when nothing matched) exactly when no record\nhas a cell, which is when the blocks view is the default; null\notherwise."
       },
       "RecordCell": {
         "properties": {
@@ -4493,8 +4509,7 @@
           },
           "child_count": {
             "type": "integer",
-            "title": "Child Count",
-            "default": 0
+            "title": "Child Count"
           }
         },
         "type": "object",

@@ -393,7 +393,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Query Records */
+        /**
+         * Query Records
+         * @description `/api/query`'s results as table records. When no record has a `::`
+         *     cell the payload also carries `groups`, the grouped blocks
+         *     `/api/query` returns for the same expression.
+         */
         get: operations["query_records_api_query_records_get"];
         put?: never;
         post?: never;
@@ -1915,7 +1920,11 @@ export interface components {
          * QueryRecordsPayload
          * @description GET /api/query/records: one record per row, in the order of each
          *     one's first result, and the column candidates ranked by how many
-         *     records hold them. `total` counts records, not results.
+         *     records hold them. `total` counts records, not results. `groups` is
+         *     what `GET /api/query` returns as `groups` for the same expression,
+         *     present (an empty list when nothing matched) exactly when no record
+         *     has a cell, which is when the blocks view is the default; null
+         *     otherwise.
          */
         QueryRecordsPayload: {
             /** Records */
@@ -1924,6 +1933,8 @@ export interface components {
             keys: components["schemas"]["KeyStat"][];
             /** Total */
             total: number;
+            /** Groups */
+            groups: components["schemas"]["QueryGroup"][] | null;
         };
         /**
          * RecordCell
@@ -1949,11 +1960,8 @@ export interface components {
             value_start: number;
             /** Extra Uids */
             extra_uids?: Brands.BlockUid[];
-            /**
-             * Child Count
-             * @default 0
-             */
-            child_count: number;
+            /** Child Count */
+            child_count?: number;
         };
         /** RenamePageRequest */
         RenamePageRequest: {

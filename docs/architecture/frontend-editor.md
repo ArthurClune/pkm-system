@@ -466,6 +466,12 @@ the view or resets it, so an edited row neither moves nor vanishes. A
 refetch that no longer returns a held row keeps showing its last record,
 stale (`holdRecords`). Otherwise an edit that took a row out of the query
 would drop it, and commit any draft open in it, on the next resync.
+A frozen view whose columns are the data's defaults keeps the ones it
+showed when the first refetch of the freeze landed (`holdColumns`), so a
+column whose last record left stays too. Columns the macro or the reader
+chose are shown as they are. The hold sits in `QueryResults` beside
+`holdRecords`, not in `stepView`, because only the block knows which
+columns are defaults.
 
 Save writes only the fields that differ from the data's defaults
 (`optionsFromView`). A block with no `view:` or `columns:` keeps following

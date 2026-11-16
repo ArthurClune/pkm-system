@@ -9,8 +9,9 @@ import {
   canonicalTitleOf, orderIdxOf, pageIdOf, uidOf,
 } from "../test-helpers";
 import {
-  holdRecords, inverseCellWrite, patchRecord, planQuerySave, queryColumns,
-  queryDefaults, restoreCell, shownRows, writeMessage,
+  holdColumns, holdRecords, inverseCellWrite, patchRecord, planQuerySave,
+  queryColumns, queryDefaults, restoreCell, shownColumns, shownRows,
+  writeMessage,
 } from "./queryView";
 import type { ViewFields } from "./viewState";
 
@@ -174,6 +175,59 @@ describe("holdRecords", () => {
     expect(holdRecords([B], new Map([["p:a", A]]), [], null))
       .toEqual(new Map([["p:b", B]]));
     expect(holdRecords([A, B], none, [A, B], null)).toEqual(none);
+  });
+});
+
+describe("holdColumns", () => {
+  const prev = { defaults: { view: "table" as const, columns: ["Writer"] },
+                 keys: [stat("author", 2, "Writer")], held: null };
+  const frozen = ["p:a"];
+
+  it("holds nothing while unfrozen or before a first load", () => {
+    expect(holdColumns(prev, null)).toBeNull();
+    expect(holdColumns(null, frozen)).toBeNull();
+  });
+
+  it("holds the defaults and keys of the load before the first refetch of a freeze",
+     () => {
+    expect(holdColumns(prev, frozen))
+      .toEqual({ frozen, labels: ["Writer"], keys: prev.keys });
+  });
+
+  it("keeps the hold through later refetches of the same freeze", () => {
+    const held = { frozen, labels: ["Old"], keys: [] };
+    expect(holdColumns({ ...prev, held }, frozen)).toBe(held);
+  });
+
+  it("holds afresh for a later freeze", () => {
+    const held = { frozen: ["p:a"], labels: ["Old"], keys: [] };
+    expect(holdColumns({ ...prev, held }, frozen))
+      .toEqual({ frozen, labels: ["Writer"], keys: prev.keys });
+  });
+});
+
+describe("shownColumns", () => {
+  const frozen = ["p:a"];
+  const held = { frozen, labels: ["Writer", "Gone"],
+                 keys: [stat("author", 2, "Writer"), stat("gone", 1, "Gone")] };
+  const now = [stat("author", 1, "Writer")];
+  const col = (label: string, key: string) => ({ name: label, label, key });
+
+  it("shows the held defaults while their freeze lasts", () => {
+    expect(shownColumns(["Writer"], now, held, frozen, true))
+      .toEqual([col("Writer", "author"), col("Gone", "gone")]);
+  });
+
+  it("shows chosen columns, finding a key only the held stats name", () => {
+    expect(shownColumns(["Gone"], now, held, frozen, false))
+      .toEqual([col("Gone", "gone")]);
+  });
+
+  it("shows the live columns once the freeze ends or is another", () => {
+    expect(shownColumns(["Writer"], now, held, null, true))
+      .toEqual([col("Writer", "author")]);
+    expect(shownColumns(["Writer"], now, held, ["p:a"], true))
+      .toEqual([col("Writer", "author")]);
   });
 });
 

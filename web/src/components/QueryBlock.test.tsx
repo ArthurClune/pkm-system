@@ -759,6 +759,96 @@ describe("cell writes", () => {
     expect(screen.getByText("Book/Beta")).toBeInTheDocument();
   });
 
+  /** Alpha's Published line sits under the key the server canonicalises it
+   * to, so a column that finds its key by label alone misses the cell. */
+  const PUB_ALPHA = bookRecord("p:alpha", "Book/Alpha", {
+    Author: ALPHA_BOOK.cells.Author!,
+    "Reading Status": ALPHA_BOOK.cells["Reading Status"]!,
+    published: bookCell("apub01", "Published:: 2020"),
+  });
+  const PUB_KEYS: KeyStat[] = [
+    stat("Author", 2), stat("Reading Status", 1),
+    { key: canonicalTitleOf("published"), label: "Published", count: 1 },
+    stat("Publication", 1)];
+
+  const headers = () => screen.getAllByRole("columnheader").map((th) =>
+    within(th).getAllByRole("button")[0]!.textContent);
+
+  /** Renders `text` over Alpha and Beta, then writes Alpha's status, which
+   * holds the rows in place; `resync` answers a reconnect with Beta alone,
+   * whose records hold neither Reading Status nor Published. */
+  async function holdBooks(text: string) {
+    stubBooks({ records: [PUB_ALPHA, BETA_BOOK], keys: PUB_KEYS, total: 2,
+                groups: null });
+    const sync = makeSync();
+    const { setSync } = renderBlock(text, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    const resync = async () => {
+      stubBooks({ records: [BETA_BOOK], total: 1, groups: null,
+                  keys: [stat("Author", 1), stat("Publication", 1)] });
+      const later = makeSync("connected", { resyncGeneration: 1 });
+      later.enqueue = sync.enqueue;
+      setSync(later);
+      await screen.findByText("1 of 1 results");
+    };
+    return { sync, resync };
+  }
+
+  it("keeps a default column a refetch drops, with its open draft", async () => {
+    const { sync, resync } = await holdBooks(`{{query: ${BOOK}}}`);
+    fireEvent.click(cellOf("Book/Alpha", "Published"));
+    fireEvent.change(editor(), { target: { value: "2021" } });
+    await resync();
+    expect(headers()).toEqual(
+      ["Result", "Author", "Reading Status", "Published", "Publication"]);
+    expect(editor().value).toBe("2021");
+    expect(sync.sent).toHaveLength(1);
+    fireEvent.keyDown(editor(), { key: "Enter" });
+    await act(async () => { await Promise.resolve(); });
+    expect(sync.sent[1]).toEqual([expect.objectContaining({
+      op: "update_text", uid: "apub01", text: "Published:: 2021" })]);
+  });
+
+  it("lets the held default columns go when the view changes", async () => {
+    const { resync } = await holdBooks(`{{query: ${BOOK}}}`);
+    await resync();
+    fireEvent.change(filterBox(), { target: { value: "book" } });
+    expect(headers()).toEqual(["Result", "Author", "Publication"]);
+    fireEvent.change(filterBox(), { target: { value: "" } });
+    expect(headers()).toEqual(["Result", "Author", "Publication"]);
+    expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  });
+
+  it("shows the macro's own columns, not the defaults, while rows are held",
+     async () => {
+    const { resync } = await holdBooks(
+      `{{query: ${BOOK} | columns: Author, Reading Status}}`);
+    await resync();
+    expect(headers()).toEqual(["Result", "Author", "Reading Status"]);
+  });
+
+  it("shows the reader's own columns, not the defaults, while rows are held",
+     async () => {
+    stubBooks({ records: [PUB_ALPHA, BETA_BOOK], keys: PUB_KEYS, total: 2,
+                groups: null });
+    const sync = makeSync();
+    const { setSync } = renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Publication column menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hide column" }));
+    await write("Book/Alpha", "Reading Status", "Unread");
+    stubBooks({ records: [BETA_BOOK], total: 1, groups: null,
+                keys: [stat("Author", 1), stat("Publication", 1)] });
+    const later = makeSync("connected", { resyncGeneration: 1 });
+    later.enqueue = sync.enqueue;
+    setSync(later);
+    await screen.findByText("1 of 1 results");
+    expect(headers()).toEqual(
+      ["Result", "Author", "Reading Status", "Published"]);
+    expect(cellOf("Book/Alpha", "Published")).toHaveTextContent("2020");
+  });
+
   it("an Undo undoes its own write when its press commits another cell", async () => {
     stubBooks();
     const { sync } = renderBlock(`{{query: ${BOOK}}}`);

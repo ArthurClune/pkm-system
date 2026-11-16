@@ -10,7 +10,8 @@
 // online-only. While a cell edit holds the rows in place, a refetch that
 // drops a held row's record keeps showing the record it last had
 // (holdRecords), so a row an edit took out of the query stays put,
-// writable, until the view changes.
+// writable, until the view changes; and the default columns stay as they
+// were (holdColumns), so a column whose last record left does too.
 import { Fragment, useCallback, useContext, useEffect, useLayoutEffect,
          useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -28,8 +29,9 @@ import { pagePath } from "../paths";
 import { useResync, useSyncHealth } from "../sync/SyncProvider";
 import { QueryCards } from "../tables/QueryCards";
 import { QueryTable } from "../tables/QueryTable";
-import { holdRecords, planQuerySave, queryColumns, queryDefaults,
-         shownRows, type QueryColumn } from "../tables/queryView";
+import { holdColumns, holdRecords, planQuerySave, queryDefaults,
+         shownColumns, shownRows, type HeldColumns,
+         type QueryColumn } from "../tables/queryView";
 import { island } from "../tables/island";
 import { TableToolbar } from "../tables/TableToolbar";
 import { useCellWrites } from "../tables/useCellWrites";
@@ -65,6 +67,7 @@ interface Loaded {
   keys: KeyStat[];
   total: number;
   defaults: ViewDefaults;
+  held: HeldColumns | null;
 }
 
 export interface QueryResultsProps {
@@ -125,7 +128,11 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
         setRecords((cur) => ({
           records: p.records,
           held: holdRecords(cur.records, cur.held, p.records, frozen) }));
-        setLoaded({ keys: p.keys, total: p.total, defaults: queryDefaults(p) });
+        // frozenNow is read as the update applies, not as the load lands,
+        // so a freeze committed in between still holds its columns.
+        setLoaded((cur) => ({ keys: p.keys, total: p.total,
+                              defaults: queryDefaults(p),
+                              held: holdColumns(cur, frozenNow.current) }));
         setError(null);
       } catch (e: unknown) {
         if (recordsGuard.isStale(token)) return;
@@ -210,7 +217,9 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   }
 
   const live = view.live;
-  const columns: QueryColumn[] = queryColumns(live.columns, loaded.keys);
+  const columns: QueryColumn[] = shownColumns(
+    live.columns, loaded.keys, loaded.held, view.frozen,
+    options.columns === undefined && !isDirty(view));
   const { rows, matching } = shownRows(records, columns, live, view.frozen,
                                       held);
   const next = optionsFromView(live, loaded.defaults);

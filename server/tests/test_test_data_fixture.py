@@ -5,40 +5,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from pkm.server.mime_sniff import sniff_mime
-from pkm.test_data.core import parse_graph_source
+from pkm.test_data.core import BlockSource, GraphSource, PageSource, parse_graph_source
 
 TEST_DATA = Path(__file__).parents[2] / "test-data"
+TEMPLATES = Path(__file__).parents[2] / "web/src/templates"
 
 
 def test_committed_graph_covers_supported_examples() -> None:
     raw = json.loads((TEST_DATA / "graph.json").read_text(encoding="utf-8"))
     source = parse_graph_source(json.dumps(raw), asset_names={"sample.svg", "sample.pdf"})
-    assert [page.title for page in source.pages] == [
-        "Project Atlas",
-        "Formatting Lab",
-        "Garden 🌱",
-        "July 18th, 2026",
-    ]
-    assert len(source.pages) == 4
-    assert [
-        [block.uid for block in page.blocks]
-        for page in source.pages
-    ] == [
-        ["atlas-outline", "atlas-status", "atlas-todo", "atlas-image", "atlas-block-ref"],
-        [
-            "format-table",
-            "format-code",
-            "format-mermaid",
-            "format-inline-math",
-            "format-display-math",
-            "format-invalid-math",
-            "format-pdf",
-            "format-embed",
-        ],
-        ["garden-backlink"],
-        ["journal-entry"],
-    ]
-    assert sum(len(page.blocks) for page in source.pages) == 15
     for page in source.pages:
         assert page.created_at == 1784332800000
         assert page.updated_at == 1784332860000
@@ -69,7 +44,79 @@ def test_committed_graph_covers_supported_examples() -> None:
     assert "{{asset:sample.svg}}" in blocks["atlas-image"].text
     assert "{{asset:sample.pdf}}" in blocks["format-pdf"].text
     assert "[[Project Atlas]]" in blocks["garden-backlink"].text
-    assert source.sidebar_entries == ("Project Atlas", "Formatting Lab", "Garden 🌱")
+    assert source.sidebar_entries == (
+        "Project Atlas", "Formatting Lab", "Garden 🌱", "Reading List")
+
+
+def _graph() -> GraphSource:
+    text = (TEST_DATA / "graph.json").read_text(encoding="utf-8")
+    return parse_graph_source(text, asset_names={"sample.svg", "sample.pdf"})
+
+
+def _top_level(page: PageSource) -> list[str]:
+    roots = [b for b in page.blocks if b.parent_uid is None]
+    return [b.text for b in sorted(roots, key=lambda b: b.order_idx)]
+
+
+def test_namespaced_pages_start_with_their_template() -> None:
+    pages = _graph().pages
+    for namespace in ("Paper", "Book"):
+        keys = [line.removeprefix("- ").split("::")[0] for line in
+                (TEMPLATES / f"{namespace}.md").read_text().splitlines()]
+        members = [p for p in pages if p.title.startswith(f"{namespace}/")]
+        assert len(members) >= 3, namespace
+        for page in members:
+            head = _top_level(page)[:len(keys)]
+            assert [t.split("::")[0] for t in head] == keys, page.title
+            assert head[0].startswith(f"Tags:: #{namespace}"), page.title
+
+
+def test_graph_covers_queries_tables_and_todos() -> None:
+    source = _graph()
+    texts = [b.text for p in source.pages for b in p.blocks]
+    queries = [t for t in texts if t.startswith("{{query:")]
+    assert any("[[Book]]" in q and "| view: table" in q and "| columns:" in q
+               for q in queries)
+    assert any("| view: cards" in q for q in queries)
+    assert any("[[Paper]]" in q and "| view:" not in q for q in queries)
+    assert any("[[Article]]" in q for q in queries)
+    assert any("[[TODO]]" in q for q in queries)
+
+    blocks = [b for p in source.pages for b in p.blocks]
+    children: dict[str, list[str]] = {}
+    for b in blocks:
+        if b.parent_uid is not None:
+            children.setdefault(str(b.parent_uid), []).append(b.text)
+    articles = [b for b in blocks if "#Article" in b.text]
+    assert articles
+    assert all(any("::" in c for c in children.get(str(b.uid), []))
+               for b in articles)
+
+    tables = [b for b in blocks if b.text == "{{table}}"]
+    assert tables
+    widths = {_row_width(blocks, r) for r in blocks
+              if r.parent_uid == tables[0].uid}
+    assert len(widths) == 1 and widths.pop() >= 2
+
+    assert any(t.startswith("{{[[DONE]]}}") for t in texts)
+    journals = [p.title for p in source.pages if p.title.startswith("July ")]
+    assert len(journals) >= 2
+
+
+def _row_width(blocks: list[BlockSource], first: BlockSource) -> int:
+    width, cell = 1, first
+    while (nxt := [b for b in blocks if b.parent_uid == cell.uid]):
+        assert len(nxt) == 1
+        width, cell = width + 1, nxt[0]
+    return width
+
+
+def test_graph_has_a_page_long_enough_to_scroll() -> None:
+    long_page = next(
+        p for p in _graph().pages if p.title == "Garden Journal Archive")
+    assert _top_level(long_page)[0] == "{{toc}}"
+    assert sum(1 for b in long_page.blocks if b.heading == 2) >= 8
+    assert len(long_page.blocks) >= 40
 
 
 def test_committed_media_are_valid_files() -> None:

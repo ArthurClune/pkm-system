@@ -6,11 +6,14 @@ import shutil
 from pathlib import Path
 
 import pytest
+from conftest import TEST_PASSWORD, make_config
+from fastapi.testclient import TestClient
 
 import pkm.test_data.generate as generate_module
 from rawread import read
 from pkm.test_data.generate import _publish_staged, generate, main
 from pkm.database import connect
+from pkm.server.app import create_app
 
 TEST_DATA = Path(__file__).parents[2] / "test-data"
 
@@ -42,7 +45,8 @@ def test_generate_builds_queryable_graph_and_content_addressed_assets(tmp_path: 
         assert [(row["title"], row["sidebar_order_idx"]) for row in con.select(
             "SELECT title, order_idx AS sidebar_order_idx FROM sidebar_entries"
             " ORDER BY order_idx"
-        )] == [("Project Atlas", 0), ("Formatting Lab", 1), ("Garden 🌱", 2)]
+        )] == [("Project Atlas", 0), ("Formatting Lab", 1), ("Garden 🌱", 2),
+               ("Reading List", 3)]
         assert read(con,
             "SELECT count(*) FROM blocks_fts WHERE blocks_fts MATCH 'synthetic'"
         ).fetchone()[0] > 0
@@ -69,6 +73,38 @@ def test_generate_builds_queryable_graph_and_content_addressed_assets(tmp_path: 
         assert size == source.stat().st_size
         assert (output / "assets" / sha[:2] / sha).read_bytes() == source.read_bytes()
 
+
+
+def _records(client: TestClient, expr: str) -> dict:
+    r = client.get("/api/query/records", params={"expr": expr})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_generated_graph_feeds_every_query_view(tmp_path: Path) -> None:
+    output = tmp_path / "data"
+    generate(TEST_DATA / "graph.json", output)
+    client = TestClient(create_app(make_config(output)))
+    assert client.post(
+        "/api/login", json={"password": TEST_PASSWORD}).status_code == 200
+
+    books = _records(client, "{and: [[Book]]}")
+    assert all(rec["kind"] == "page" for rec in books["records"])
+    assert {"Author", "Reading Status", "Published"} <= {
+        k["key"] for k in books["keys"]}
+    assert books["groups"] is None
+
+    research = _records(client, "{and: [[Paper]] [[Research]]}")
+    assert research["total"] >= 2
+    assert {"URL", "Date"} <= {k["key"] for k in research["keys"]}
+
+    articles = _records(client, "{and: [[Article]]}")
+    assert articles["total"] >= 2
+    assert all(rec["kind"] == "line" and "Status" in rec["cells"]
+               for rec in articles["records"])
+
+    tasks = _records(client, "{or: [[TODO]] [[DONE]]}")
+    assert tasks["groups"]
 
 def test_generate_preserves_lone_config_file(tmp_path: Path) -> None:
     output = tmp_path / "data"

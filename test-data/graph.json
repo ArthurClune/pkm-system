@@ -59,6 +59,17 @@
           "view_type": null,
           "created_at": 1784332800000,
           "updated_at": 1784332860000
+        },
+        {
+          "uid": "atlas-task-query",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "{{query: {or: [[TODO]] [[DONE]]}}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
         }
       ]
     },
@@ -154,6 +165,182 @@
           "view_type": null,
           "created_at": 1784332800000,
           "updated_at": 1784332860000
+        },
+        {
+          "uid": "format-plain-table",
+          "parent_uid": null,
+          "order_idx": 8,
+          "text": "{{table}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r0-c0",
+          "parent_uid": "format-plain-table",
+          "order_idx": 0,
+          "text": "Plant",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r0-c1",
+          "parent_uid": "table-r0-c0",
+          "order_idx": 0,
+          "text": "Season",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r0-c2",
+          "parent_uid": "table-r0-c1",
+          "order_idx": 0,
+          "text": "Water",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r1-c0",
+          "parent_uid": "format-plain-table",
+          "order_idx": 1,
+          "text": "Tomato",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r1-c1",
+          "parent_uid": "table-r1-c0",
+          "order_idx": 0,
+          "text": "Summer",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r1-c2",
+          "parent_uid": "table-r1-c1",
+          "order_idx": 0,
+          "text": "Daily",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r2-c0",
+          "parent_uid": "format-plain-table",
+          "order_idx": 2,
+          "text": "Kale",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r2-c1",
+          "parent_uid": "table-r2-c0",
+          "order_idx": 0,
+          "text": "Winter",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r2-c2",
+          "parent_uid": "table-r2-c1",
+          "order_idx": 0,
+          "text": "Weekly",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r3-c0",
+          "parent_uid": "format-plain-table",
+          "order_idx": 3,
+          "text": "Basil",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r3-c1",
+          "parent_uid": "table-r3-c0",
+          "order_idx": 0,
+          "text": "Summer",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r3-c2",
+          "parent_uid": "table-r3-c1",
+          "order_idx": 0,
+          "text": "Daily",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r4-c0",
+          "parent_uid": "format-plain-table",
+          "order_idx": 4,
+          "text": "Garlic",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r4-c1",
+          "parent_uid": "table-r4-c0",
+          "order_idx": 0,
+          "text": "Autumn",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "table-r4-c2",
+          "parent_uid": "table-r4-c1",
+          "order_idx": 0,
+          "text": "Rarely",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
         }
       ]
     },
@@ -192,7 +379,1428 @@
           "updated_at": 1784332860000
         }
       ]
+    },
+    {
+      "title": "Paper/Root Networks in Synthetic Soil",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "papr-roots-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Tags:: #Paper #Research",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-roots-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "URL:: https://example.org/papers/root-networks",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-roots-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Date:: 2024-03-12",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-roots-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Local copy::",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-roots-5",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "Key finding: roots share water across the [[Garden 🌱]] beds.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Paper/Measuring Garden Growth",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "papr-growth-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Tags:: #Paper #Research",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-growth-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "URL:: https://example.org/papers/garden-growth",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-growth-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Date:: 2025-06-01",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-growth-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Local copy:: [sample.pdf]({{asset:sample.pdf}})",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-growth-5",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "Method reused in [[Project Atlas]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Paper/Compost Chemistry Notes",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "papr-compost-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Tags:: #Paper",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-compost-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "URL::",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-compost-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Date:: 2023-11-20",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "papr-compost-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Local copy::",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Book/The Patient Gardener",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "book-patient-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Tags:: #Book",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-patient-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "Author:: Ada Moss",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-patient-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Reading Status:: reading",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-patient-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Published:: 2019",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-patient-5",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "Format:: Kindle",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-patient-6",
+          "parent_uid": null,
+          "order_idx": 5,
+          "text": "Summary:: Slow methods for small plots.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Book/Seasons of Code",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "book-seasons-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Tags:: #Book",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-seasons-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "Author:: Lin Park",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-seasons-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Reading Status:: done",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-seasons-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Published:: 2021",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-seasons-5",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "Format:: Paperback",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-seasons-6",
+          "parent_uid": null,
+          "order_idx": 5,
+          "text": "Summary::",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Book/A Field Guide to Outlines",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "book-outlines-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Tags:: #Book",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-outlines-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "Author:: R. Vale",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-outlines-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Reading Status:: to read",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-outlines-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Published:: 2024",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-outlines-5",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "Format:: Hardback",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "book-outlines-6",
+          "parent_uid": null,
+          "order_idx": 5,
+          "text": "Summary:: Nested notes, one idea per line.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Reading List",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "reading-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "Books",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-1-1",
+          "parent_uid": "reading-1",
+          "order_idx": 0,
+          "text": "{{query: {and: [[Book]]} | view: table | sort: Published desc | columns: Author, Reading Status, Published}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "Research papers",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-2-1",
+          "parent_uid": "reading-2",
+          "order_idx": 0,
+          "text": "{{query: {and: [[Paper]] [[Research]]}}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "All papers as cards",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-3-1",
+          "parent_uid": "reading-3",
+          "order_idx": 0,
+          "text": "{{query: {and: [[Paper]]} | view: cards}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Articles",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-1",
+          "parent_uid": "reading-4",
+          "order_idx": 0,
+          "text": "[Soil sampling guide](https://example.org/soil-guide) #Article",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-1-1",
+          "parent_uid": "reading-4-1",
+          "order_idx": 0,
+          "text": "Status:: unread",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-1-2",
+          "parent_uid": "reading-4-1",
+          "order_idx": 1,
+          "text": "Source:: [[Garden 🌱]]",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-2",
+          "parent_uid": "reading-4",
+          "order_idx": 1,
+          "text": "[Compost at home](https://example.org/compost) #Article",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-2-1",
+          "parent_uid": "reading-4-2",
+          "order_idx": 0,
+          "text": "Status:: read",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-2-2",
+          "parent_uid": "reading-4-2",
+          "order_idx": 1,
+          "text": "Source:: [[Paper/Compost Chemistry Notes]]",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "reading-4-3",
+          "parent_uid": "reading-4",
+          "order_idx": 2,
+          "text": "{{query: {and: [[Article]]}}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "July 17th, 2026",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "july17-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "{{[[DONE]]}} Draft the [[Project Atlas]] outline",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "july17-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "{{[[DONE]]}} Order seeds for [[Garden 🌱]]",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "july17-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "{{[[TODO]]}} Start [[Book/The Patient Gardener]]",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "july17-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Set up the [[Reading List]]",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
+    },
+    {
+      "title": "Garden Journal Archive",
+      "created_at": 1784332800000,
+      "updated_at": 1784332860000,
+      "blocks": [
+        {
+          "uid": "archive-1",
+          "parent_uid": null,
+          "order_idx": 0,
+          "text": "{{toc}}",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-2",
+          "parent_uid": null,
+          "order_idx": 1,
+          "text": "Week 1",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-2-1",
+          "parent_uid": "archive-2",
+          "order_idx": 0,
+          "text": "Watered the tomatoes in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-2-2",
+          "parent_uid": "archive-2",
+          "order_idx": 1,
+          "text": "Noted growth on the tomatoes bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-2-3",
+          "parent_uid": "archive-2",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-2-3-1",
+          "parent_uid": "archive-2-3",
+          "order_idx": 0,
+          "text": "Soil damp under the tomatoes.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-2-3-2",
+          "parent_uid": "archive-2-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-3",
+          "parent_uid": null,
+          "order_idx": 2,
+          "text": "Week 2",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-3-1",
+          "parent_uid": "archive-3",
+          "order_idx": 0,
+          "text": "Watered the kale in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-3-2",
+          "parent_uid": "archive-3",
+          "order_idx": 1,
+          "text": "Noted growth on the kale bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-3-3",
+          "parent_uid": "archive-3",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-3-3-1",
+          "parent_uid": "archive-3-3",
+          "order_idx": 0,
+          "text": "Soil damp under the kale.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-3-3-2",
+          "parent_uid": "archive-3-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-4",
+          "parent_uid": null,
+          "order_idx": 3,
+          "text": "Week 3",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-4-1",
+          "parent_uid": "archive-4",
+          "order_idx": 0,
+          "text": "Watered the basil in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-4-2",
+          "parent_uid": "archive-4",
+          "order_idx": 1,
+          "text": "Noted growth on the basil bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-4-3",
+          "parent_uid": "archive-4",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-4-3-1",
+          "parent_uid": "archive-4-3",
+          "order_idx": 0,
+          "text": "Soil damp under the basil.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-4-3-2",
+          "parent_uid": "archive-4-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-5",
+          "parent_uid": null,
+          "order_idx": 4,
+          "text": "Week 4",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-5-1",
+          "parent_uid": "archive-5",
+          "order_idx": 0,
+          "text": "Watered the garlic in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-5-2",
+          "parent_uid": "archive-5",
+          "order_idx": 1,
+          "text": "Noted growth on the garlic bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-5-3",
+          "parent_uid": "archive-5",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-5-3-1",
+          "parent_uid": "archive-5-3",
+          "order_idx": 0,
+          "text": "Soil damp under the garlic.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-5-3-2",
+          "parent_uid": "archive-5-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-6",
+          "parent_uid": null,
+          "order_idx": 5,
+          "text": "Week 5",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-6-1",
+          "parent_uid": "archive-6",
+          "order_idx": 0,
+          "text": "Watered the beans in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-6-2",
+          "parent_uid": "archive-6",
+          "order_idx": 1,
+          "text": "Noted growth on the beans bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-6-3",
+          "parent_uid": "archive-6",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-6-3-1",
+          "parent_uid": "archive-6-3",
+          "order_idx": 0,
+          "text": "Soil damp under the beans.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-6-3-2",
+          "parent_uid": "archive-6-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-7",
+          "parent_uid": null,
+          "order_idx": 6,
+          "text": "Week 6",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-7-1",
+          "parent_uid": "archive-7",
+          "order_idx": 0,
+          "text": "Watered the squash in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-7-2",
+          "parent_uid": "archive-7",
+          "order_idx": 1,
+          "text": "Noted growth on the squash bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-7-3",
+          "parent_uid": "archive-7",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-7-3-1",
+          "parent_uid": "archive-7-3",
+          "order_idx": 0,
+          "text": "Soil damp under the squash.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-7-3-2",
+          "parent_uid": "archive-7-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-8",
+          "parent_uid": null,
+          "order_idx": 7,
+          "text": "Week 7",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-8-1",
+          "parent_uid": "archive-8",
+          "order_idx": 0,
+          "text": "Watered the lettuce in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-8-2",
+          "parent_uid": "archive-8",
+          "order_idx": 1,
+          "text": "Noted growth on the lettuce bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-8-3",
+          "parent_uid": "archive-8",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-8-3-1",
+          "parent_uid": "archive-8-3",
+          "order_idx": 0,
+          "text": "Soil damp under the lettuce.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-8-3-2",
+          "parent_uid": "archive-8-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-9",
+          "parent_uid": null,
+          "order_idx": 8,
+          "text": "Week 8",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-9-1",
+          "parent_uid": "archive-9",
+          "order_idx": 0,
+          "text": "Watered the chard in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-9-2",
+          "parent_uid": "archive-9",
+          "order_idx": 1,
+          "text": "Noted growth on the chard bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-9-3",
+          "parent_uid": "archive-9",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-9-3-1",
+          "parent_uid": "archive-9-3",
+          "order_idx": 0,
+          "text": "Soil damp under the chard.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-9-3-2",
+          "parent_uid": "archive-9-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-10",
+          "parent_uid": null,
+          "order_idx": 9,
+          "text": "Week 9",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-10-1",
+          "parent_uid": "archive-10",
+          "order_idx": 0,
+          "text": "Watered the peas in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-10-2",
+          "parent_uid": "archive-10",
+          "order_idx": 1,
+          "text": "Noted growth on the peas bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-10-3",
+          "parent_uid": "archive-10",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-10-3-1",
+          "parent_uid": "archive-10-3",
+          "order_idx": 0,
+          "text": "Soil damp under the peas.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-10-3-2",
+          "parent_uid": "archive-10-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-11",
+          "parent_uid": null,
+          "order_idx": 10,
+          "text": "Week 10",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-11-1",
+          "parent_uid": "archive-11",
+          "order_idx": 0,
+          "text": "Watered the leeks in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-11-2",
+          "parent_uid": "archive-11",
+          "order_idx": 1,
+          "text": "Noted growth on the leeks bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-11-3",
+          "parent_uid": "archive-11",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-11-3-1",
+          "parent_uid": "archive-11-3",
+          "order_idx": 0,
+          "text": "Soil damp under the leeks.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-11-3-2",
+          "parent_uid": "archive-11-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-12",
+          "parent_uid": null,
+          "order_idx": 11,
+          "text": "Week 11",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-12-1",
+          "parent_uid": "archive-12",
+          "order_idx": 0,
+          "text": "Watered the onions in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-12-2",
+          "parent_uid": "archive-12",
+          "order_idx": 1,
+          "text": "Noted growth on the onions bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-12-3",
+          "parent_uid": "archive-12",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-12-3-1",
+          "parent_uid": "archive-12-3",
+          "order_idx": 0,
+          "text": "Soil damp under the onions.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-12-3-2",
+          "parent_uid": "archive-12-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-13",
+          "parent_uid": null,
+          "order_idx": 12,
+          "text": "Week 12",
+          "heading": 2,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-13-1",
+          "parent_uid": "archive-13",
+          "order_idx": 0,
+          "text": "Watered the carrots in the morning.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-13-2",
+          "parent_uid": "archive-13",
+          "order_idx": 1,
+          "text": "Noted growth on the carrots bed; see [[Garden 🌱]].",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-13-3",
+          "parent_uid": "archive-13",
+          "order_idx": 2,
+          "text": "Observations",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-13-3-1",
+          "parent_uid": "archive-13-3",
+          "order_idx": 0,
+          "text": "Soil damp under the carrots.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        },
+        {
+          "uid": "archive-13-3-2",
+          "parent_uid": "archive-13-3",
+          "order_idx": 1,
+          "text": "No pests seen this week.",
+          "heading": null,
+          "collapsed": false,
+          "view_type": null,
+          "created_at": 1784332800000,
+          "updated_at": 1784332860000
+        }
+      ]
     }
   ],
-  "sidebar_entries": ["Project Atlas", "Formatting Lab", "Garden 🌱"]
+  "sidebar_entries": [
+    "Project Atlas",
+    "Formatting Lab",
+    "Garden 🌱",
+    "Reading List"
+  ]
 }

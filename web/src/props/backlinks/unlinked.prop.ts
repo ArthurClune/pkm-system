@@ -42,9 +42,9 @@ const REACH: Reach = {
   per: EXAMPLES,
   // Floors: half the lowest share over 20 unseeded gate runs, 2026-11-11.
   floors: {
-    "delivered beside settled": 0.026,
+    "delivered beside queued": 0.026,
     "delivered stays delivered": 0.052,
-    "delivery fails after settle": 0.12,
+    "delivery fails after queueing": 0.12,
     "error a to error": 0.247,
     "error a to pending": 0.252,
     "error b to error": 0.25,
@@ -56,9 +56,9 @@ const REACH: Reach = {
     "none to error": 0.444,
     "none to pending": 0.338,
     "pending to error": 0.311,
-    "pending to settled": 0.227,
-    "settled to delivered": 0.069,
-    "settled to error": 0.12,
+    "pending to queued": 0.227,
+    "queued to delivered": 0.069,
+    "queued to error": 0.12,
   },
 };
 

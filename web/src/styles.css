@@ -24,6 +24,9 @@
   color-scheme: light;
   --color-bg: #f8f9fb;
   --color-bg-subtle: #f2f5f8;
+  /* kept clear of --color-bg-subtle, the fill of table headers, fields and
+   * panels inside a row, so a hovered row cannot swallow them */
+  --color-row-hover: #f7f9fb;
   --color-bg-surface: #ffffff;
   --color-bg-sidebar: #fbfcfd;
   --color-border: #dbe4e8;
@@ -129,6 +132,7 @@
     color-scheme: dark;
     --color-bg: #14181c;
     --color-bg-subtle: #1c2126;
+    --color-row-hover: #252c33;
     --color-bg-surface: #20262c;
     --color-bg-sidebar: #171b1f;
     --color-border: #2f3944;
@@ -188,6 +192,7 @@
   color-scheme: dark;
   --color-bg: #14181c;
   --color-bg-subtle: #1c2126;
+  --color-row-hover: #252c33;
   --color-bg-surface: #20262c;
   --color-bg-sidebar: #171b1f;
   --color-border: #2f3944;
@@ -578,7 +583,7 @@ button { font: inherit; }
  * inherits the same value and the row doesn't jump on focus */
 .block-row { display: flex; align-items: baseline; padding: 3px 0; border-radius: var(--radius-control);
   line-height: 1.4; }
-.block-row:hover { background: var(--color-bg-subtle); }
+.block-row:hover { background: var(--color-row-hover); }
 .chevron { background: none; border: none; cursor: pointer; color: var(--color-text-muted);
   width: 16px; padding: 0; flex-shrink: 0; transform: rotate(90deg);
   transition: transform 0.1s; }
@@ -788,6 +793,8 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .roam-table th, .roam-table td { border: 1px solid var(--color-border);
   padding: 6px 8px; vertical-align: top; }
 .roam-table th { background: var(--color-bg-subtle); text-align: left; font-weight: 600; }
+/* opaque, so a hovered or focused row tints around the table, not in it */
+.roam-table td { background: var(--color-bg-surface); }
 /* Both tables are at least max-content wide, so a narrow screen scrolls
  * them rather than squeezing them. A body cell caps its content, or one long
  * line (a markdown link's URL) sets its column's width and pushes the other
@@ -1011,6 +1018,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .data-table th, .data-table td { border: 1px solid var(--color-border);
   padding: 6px 8px; vertical-align: top; text-align: left; }
 .data-table th { background: var(--color-bg-subtle); padding: 0; }
+.data-table td { background: var(--color-bg-surface); }
 .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .data-table td.editable { cursor: text; }
 /* the header is a button for keyboard access; it fills the th. The ring

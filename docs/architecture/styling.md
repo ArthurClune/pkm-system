@@ -53,6 +53,7 @@ Radius steps are assigned by role:
 | Element | Rule |
 |---|---|
 | `.block-stamp` | the row's last flex child, beside the textarea, so focus cannot shift it. Its band tokens (`--color-stamp-week`, `-month`, `-year`) are solid, so a band survives hover and focus; `stampBand`'s `"older"` rows have none. Hidden under 600px |
+| `.block-row:hover` | fills with `--color-row-hover`, never `--color-bg-subtle`. Table headers, fields and panels inside a row fill with the subtle token, so a hovered row in that colour hides them |
 | `.block-ref-badge` | must not join `.block-stamp`'s under-600px `display: none`: on touch it is the only route to the references popover |
 | `.block-input` | borderless and transparent; its `field-sizing` auto-grow rule is in [frontend-editor.md § The editor](frontend-editor.md#the-editor) |
 | `.block-input.code-input` | set while the draft is one code fence (mermaid excepted) or one display-math block, as `editsAsCode` in `grammar/tokenize.ts` decides. It takes `.code-block`'s font tokens, so a typed column is the column that renders |
@@ -80,7 +81,9 @@ Buttons and fields are styled by named class, and there is no bare
   `.left-nav`'s own `--color-bg-subtle`, so it takes the surface fill at rest.
 - **Tables.** `DataTable` (`web/src/tables/`) renders `.data-table` inside
   `.data-table-scroll`, with `.roam-table`'s cell look, so a plain table
-  does not change when its chunk loads. Both tables are at least
+  does not change when its chunk loads. Body cells of both are opaque on
+  `--color-bg-surface`, so a hovered or focused row tints around a table,
+  not inside it. Both tables are at least
   `max-content` wide so a narrow screen scrolls them, so each body cell's
   content sits in a `.table-cell` that caps its width. Without the cap, one
   long line (a markdown link's URL) widens its column until the rest scroll

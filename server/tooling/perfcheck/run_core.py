@@ -193,3 +193,13 @@ def missing_import_advice(name: str, merge_base: str, side: str) -> str:
             "Land that module on `main` first, so the merge base has it; or, if the "
             f"comparison with main is not needed, run `perf/check.sh {side} --bootstrap` "
             "and give the reason in the commit message")
+
+
+def base_servable(names: Iterable[str], base_baseline: Mapping | None) -> list[str]:
+    """The scenarios in `names` the merge base can serve. A scenario the
+    base's own committed baseline never recorded was added on the branch, so
+    the base's server 404s on its route. With no readable base baseline
+    nothing is known, and every name stays."""
+    if base_baseline is None:
+        return list(names)
+    return [n for n in names if n in base_baseline["scenarios"]]

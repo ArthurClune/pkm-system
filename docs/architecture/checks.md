@@ -139,6 +139,9 @@ Rules a change to the gate must keep:
   machine whose cores stay clocked up. So every measuring run waits for a
   quiet machine (`wait_until_quiet`) and is refused if load rose during it
   (`ensure_still_quiet`).
+- A scenario absent from the merge base's committed baseline was added on the
+  branch, and the base's server cannot serve it. `base_servable` drops it from
+  the merge-base run, so it is judged against the branch baseline alone.
 - A merge-base run measures the base's product with the branch's harness, so
   a harness change reads as `stale-baseline`. The harness may import only
   `pkm` names the base has (`missing_pkm_import`). The base's SPA must still

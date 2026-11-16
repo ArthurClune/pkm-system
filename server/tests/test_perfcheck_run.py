@@ -265,6 +265,28 @@ def test_check_regression_runs_merge_base_for_survivors_only(check, capsys):
     assert "- unstable: " in out and "bean" in out
 
 
+def test_base_servable_drops_scenarios_the_base_never_recorded():
+    base = _doc({"a/1": {"n": 1}})
+    assert run_core.base_servable(["a/1", "q/new"], base) == ["a/1"]
+    assert run_core.base_servable(["q/new"], base) == []
+    # no readable base baseline: nothing is known, so nothing is dropped
+    assert run_core.base_servable(["a/1", "q/new"], None) == ["a/1", "q/new"]
+
+
+def test_check_skips_merge_base_for_a_branch_new_scenario(check, tmp_path, capsys):
+    (tmp_path / "mb" / "perf").mkdir(parents=True)
+    (tmp_path / "mb" / "perf" / "baseline-backend.json").write_text(
+        json.dumps(_doc({"a/1": {"n": 10, "k": 10}})))
+    base = json.loads((tmp_path / "perf" / "baseline-backend.json").read_text())
+    base["scenarios"]["q/new"] = {"n": {"class": "exact", "value": 3}}
+    (tmp_path / "perf" / "baseline-backend.json").write_text(json.dumps(base))
+    rc, runner, _ = check([_doc({"a/1": {"n": 10, "k": 10}, "b/2": {"n": 5}, "q/new": {"n": 4}}),
+                           _doc({"q/new": {"n": 4}})])
+    assert rc == 1
+    assert runner.mb_only == []
+    assert "| q/new | n | 3 | 4 | regression |" in capsys.readouterr().out
+
+
 def test_check_stale_baseline(check, capsys):
     rc, runner, _ = check([_doc({"a/1": {"n": 11, "k": 10}, "b/2": {"n": 5}}),
                            _doc({"a/1": {"n": 11, "k": 10}})],

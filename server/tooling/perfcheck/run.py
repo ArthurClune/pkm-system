@@ -29,9 +29,9 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (busy_reason, busy_report, exit_code, frontend_letters, incomparable_advice,
-                                is_test_runner, missing_import_advice, missing_pkm_import, next_steps, parse_ps,
-                                scenarios_of, sides_for, stale_entries, top_processes)
+from perfcheck.run_core import (base_servable, busy_reason, busy_report, exit_code, frontend_letters,
+                                incomparable_advice, is_test_runner, missing_import_advice, missing_pkm_import,
+                                next_steps, parse_ps, scenarios_of, sides_for, stale_entries, top_processes)
 from repo_git import GitError, changed_paths, git, repo_root
 
 FRONTEND_PORT = 8977
@@ -421,7 +421,11 @@ def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
         mb = None
         if survivors:
             wt, mb_commit = merge_base_worktree(repo, side)
-            mb = runner.run(wt, scenarios_of(survivors), mb_commit)
+            base_path = _baseline_path(wt, side)
+            base_baseline = json.loads(base_path.read_text()) if base_path.exists() else None
+            served = base_servable(scenarios_of(survivors), base_baseline)
+            if served:
+                mb = runner.run(wt, served, mb_commit)
         outcomes = confirm(baseline, c.candidates, rerun, mb)
     end_load = _load1() if allow_busy else ensure_still_quiet(side, repo)
     rc = exit_code(c, outcomes)

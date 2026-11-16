@@ -5,6 +5,7 @@
 // table saves only a filter and a sort: `view` and `columns` are query
 // options.
 import type { BlockNode } from "../api/payloads";
+import { tokenizeBlock, type BlockSegment, type InlineSegment } from "../grammar/tokenize";
 import { tableMacroOptions, type MacroOptions } from "../grammar/macroOptions";
 import {
   formatMacroOptions, normaliseMacroOptions, optionsRefusal,
@@ -77,4 +78,51 @@ export function planTableSave(text: string, next: MacroOptions):
     return { refusal: NO_ROUND_TRIP };
   }
   return { text: written };
+}
+
+/** A header cell's segments with nothing interactive left in them, because
+ * the header sits inside the sort button, where a link, a button or a
+ * checkbox is invalid and would take the click. A block ref shows its
+ * `((uid))` rather than the referenced text, which only a component can
+ * look up; that is also what an unresolved ref renders. */
+export function headerSegments(text: string): BlockSegment[] {
+  return tokenizeBlock(text).flatMap((seg): BlockSegment[] => {
+    switch (seg.kind) {
+      case "todo":
+        return [{ kind: "text", text: seg.done ? "[x]" : "[ ]" }];
+      case "query":
+        return [{ kind: "text", text: text.slice(seg.span[0], seg.span[1]) }];
+      case "code-block":
+        return [{ kind: "inline-code", code: seg.code }];
+      case "pdf-embed":
+        return [{ kind: "text", text: seg.href }];
+      default:
+        return inlineHeader(seg);
+    }
+  });
+}
+
+function inlineHeader(seg: InlineSegment): InlineSegment[] {
+  switch (seg.kind) {
+    case "page-ref":
+      return [{ kind: "text", text: seg.tag ? `#${seg.title}` : seg.title }];
+    case "attribute":
+      return [{ kind: "text", text: seg.name }];
+    case "block-ref":
+      return [{ kind: "text", text: `((${seg.uid}))` }];
+    case "link":
+      return [{ kind: "text", text: seg.text }];
+    case "asset-link":
+      return [{ kind: "text", text: seg.filename }];
+    case "image":
+      return seg.alt === "" ? [] : [{ kind: "text", text: seg.alt }];
+    case "bold": case "italic": case "strike": case "highlight":
+      return [{ ...seg, children: seg.children.flatMap(inlineHeader) }];
+    case "text": case "linebreak": case "inline-code": case "math":
+      return [seg];
+    default: {
+      const exhaustive: never = seg;
+      return exhaustive;
+    }
+  }
 }

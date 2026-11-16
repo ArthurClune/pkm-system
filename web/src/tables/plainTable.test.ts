@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { block, orderIdxOf } from "../test-helpers";
 import { roamTable } from "../outline/roamTableRows";
+import { tokenizeBlock } from "../grammar/tokenize";
 import { tableMacroOptions } from "../grammar/macroOptions";
 import {
-  bodyRows, planTableSave, shownTableRows, tableColumns, tableSavedView,
+  bodyRows, headerSegments, planTableSave, shownTableRows, tableColumns, tableSavedView,
 } from "./plainTable";
 import type { ViewFields } from "./viewState";
 
@@ -122,5 +123,75 @@ describe("planTableSave", () => {
     const dir = "up" as "asc";
     expect(planTableSave("{{table}}", { sort: { col: "Lab", dir } }))
       .toHaveProperty("refusal");
+  });
+});
+
+describe("headerSegments", () => {
+  const plain = headerSegments;
+
+  it("turns a page ref, a tag and a block ref into text", () => {
+    expect(plain("[[Page X]]")).toEqual([{ kind: "text", text: "Page X" }]);
+    expect(plain("#tag")).toEqual([{ kind: "text", text: "#tag" }]);
+    expect(plain("((abcDEF123))"))
+      .toEqual([{ kind: "text", text: "((abcDEF123))" }]);
+  });
+
+  it("turns an attribute into its name", () => {
+    expect(tokenizeBlock("Owner::")[0]).toMatchObject({ kind: "attribute" });
+    expect(plain("Owner::")[0]).toEqual({ kind: "text", text: "Owner" });
+  });
+
+  it("turns a markdown link and a bare URL into their text", () => {
+    expect(plain("[label](https://e.com/a)"))
+      .toEqual([{ kind: "text", text: "label" }]);
+    expect(plain("https://e.com/a"))
+      .toEqual([{ kind: "text", text: "https://e.com/a" }]);
+  });
+
+  it("turns an uploaded file link and a pdf embed into text", () => {
+    const sha = "a".repeat(64);
+    const asset = `/assets/${sha}/notes.txt`;
+    expect(tokenizeBlock(asset)[0]).toMatchObject({ kind: "asset-link" });
+    expect(plain(asset)).toEqual([{ kind: "text", text: "notes.txt" }]);
+    expect(tokenizeBlock("{{pdf: https://e.com/a.pdf}}")[0])
+      .toMatchObject({ kind: "pdf-embed" });
+    expect(plain("{{pdf: https://e.com/a.pdf}}"))
+      .toEqual([{ kind: "text", text: "https://e.com/a.pdf" }]);
+  });
+
+  // An image's expand trigger is a button, which cannot sit in the sort
+  // button; its alt text is what the header can show.
+  it("turns an image into its alt text, and drops one without", () => {
+    expect(plain("![chart](https://e.com/a.png)"))
+      .toEqual([{ kind: "text", text: "chart" }]);
+    expect(plain("![](https://e.com/a.png) Hits"))
+      .toEqual([{ kind: "text", text: " Hits" }]);
+  });
+
+  // A checkbox in the sort button would toggle nothing the header owns.
+  it("turns a TODO and a DONE into a bracketed mark", () => {
+    expect(plain("{{[[TODO]]}} Open")[0]).toEqual({ kind: "text", text: "[ ]" });
+    expect(plain("{{[[DONE]]}} Shut")[0]).toEqual({ kind: "text", text: "[x]" });
+  });
+
+  it("turns a query into its source and a code block into its code", () => {
+    expect(plain("n {{query: [[Book]] | view: cards}}")).toEqual([
+      { kind: "text", text: "n " },
+      { kind: "text", text: "{{query: [[Book]] | view: cards}}" }]);
+    expect(plain("```js\nlet a\n```")).toEqual([
+      { kind: "inline-code", code: "let a" }]);
+  });
+
+  it("reaches links nested in emphasis and keeps the emphasis", () => {
+    expect(plain("**[[Deep]]**")).toEqual([
+      { kind: "bold", children: [{ kind: "text", text: "Deep" }] }]);
+  });
+
+  it("leaves code, math, line breaks and plain text alone", () => {
+    const text = "a `b` c $$x^2$$ d\ne";
+    const segs = tokenizeBlock(text);
+    expect(segs.map((s) => s.kind)).toEqual(
+      ["text", "inline-code", "text", "math", "text", "linebreak", "text"]);
+    expect(headerSegments(text)).toEqual(segs);
   });
 });

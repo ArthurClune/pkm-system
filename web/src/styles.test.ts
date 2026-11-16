@@ -228,6 +228,12 @@ describe("ghost icon button focus ring", () => {
     }
   });
 
+  test("an editable table cell, a tab stop, gets the ring inside its border", () => {
+    const ring = ruleFor(".data-table td.editable:focus-visible");
+    expect(ring).toContain("outline: 2px solid var(--color-link);");
+    expect(ring).toContain("outline-offset: -2px;");
+  });
+
   // The bullet is a real menu button (role=button, tabIndex 0, Enter/Space/
   // Shift+F10 -> block menu) and the only keyboard route to that menu, so it
   // keeps its tab stop. It needs the themed ring for a second reason beyond

@@ -24,7 +24,7 @@ import type { CellRef } from "../tables/cellEditor";
 import { DataTable, type Column } from "../tables/DataTable";
 import { island } from "../tables/island";
 import {
-  bodyRows, planTableSave, shownTableRows, TABLE_DEFAULTS, tableColumns,
+  bodyRows, headerSegments, planTableSave, shownTableRows, TABLE_DEFAULTS, tableColumns,
   tableSavedView, type TableRow,
 } from "../tables/plainTable";
 import { planNewRow, planTableCellWrite } from "../tables/tableWrites";
@@ -135,7 +135,9 @@ export function PlainTable({ node, rows, options, handlers,
 
   const dataColumns: Column[] = columns.map((c) => ({
     key: c.key, label: c.key, editable: true,
-    heading: c.header ? content(c.header.text) : undefined,
+    heading: c.header
+      ? <InlineSegments segments={headerSegments(c.header.text)} />
+      : undefined,
   }));
 
   return (

@@ -207,14 +207,16 @@ Enter, Space, Shift+F10 or the context-menu key opens it too.
 ## Tables
 
 Click a cell in a table, or in a query's table view, to edit it. Clicking a
-link in a cell follows the link instead.
+link in a cell follows the link instead. From the keyboard, Tab reaches each
+cell you can edit; press Enter on one to edit it.
 
 | Shortcut | Action |
 |---|---|
 | Click a column header | Sort by that column: ascending, then descending, then unsorted |
-| Enter | Save the cell |
+| Enter on a cell | Edit the cell |
+| Enter while editing | Save the cell |
 | Escape | Cancel the change; with a page list open (after `[[` or `#`), close the list first |
-| Tab / Shift+Tab | Save and move to the next / previous cell, on to the next / previous row at the end of one |
+| Tab / Shift+Tab | Save and move to the next / previous cell, on to the next / previous row at the end of one; past the last or first cell, save and stay on it |
 | Shift+Enter | New line in the cell |
 | ↑ / ↓, then Enter | Pick a suggested value or page |
 

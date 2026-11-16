@@ -4,6 +4,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockOp, CreateOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
+import { BlockRefContext } from "../contexts";
 import { roamTable } from "../outline/roamTableRows";
 import type { OutlineHandlers } from "../outline/handlers";
 import { block, canonicalTitleOf, orderIdxOf, uidOf } from "../test-helpers";
@@ -62,13 +63,18 @@ function table(text = "{{table}}", rows: BlockNode[] = [
   return block("tuid-table", text, { children: rows });
 }
 
+/** A ref a header can name: resolved, a BlockRef renders a link. */
+const REFS = { abcDEF123: { text: "Referenced", page_title: PAGE } };
+
 function mount(node: BlockNode, handlers: OutlineHandlers, editable = true) {
   const ui = (n: BlockNode) => {
     const tt = roamTable(n)!;
     return (
       <MemoryRouter>
-        <RoamTable node={n} rows={tt.rows} options={tt.options}
-                   handlers={handlers} editable={editable} />
+        <BlockRefContext.Provider value={REFS}>
+          <RoamTable node={n} rows={tt.rows} options={tt.options}
+                     handlers={handlers} editable={editable} />
+        </BlockRefContext.Provider>
       </MemoryRouter>
     );
   };
@@ -278,6 +284,42 @@ describe("RoamTable", () => {
     expect(screen.queryByRole("button", { name: "Save this view" })).toBeNull();
     expect(screen.getByText(/cannot contain '\|'/)).toBeInTheDocument();
     expect(called()).toEqual([]);
+  });
+
+  it.each([
+    ["[[Page X]]", "Page X"],
+    ["#tagx", "#tagx"],
+    ["((abcDEF123))", "((abcDEF123))"],
+    ["https://e.com/a", "https://e.com/a"],
+    ["[label](https://e.com/a)", "label"],
+  ])("a header %s shows its text, carries no link, and sorts on click",
+     async (headerText, shown) => {
+    const { handlers } = spyHandlers();
+    mount(table("{{table}}", [
+      chain("tuid-h", ["Lab", headerText]),
+      chain("tuid-a", ["apache", "b"]),
+      chain("tuid-b", ["nginx", "a"]),
+    ]), handlers);
+    await loaded();
+    const header = within(screen.getAllByRole("rowgroup")[0]!)
+      .getAllByRole("columnheader")[1]!;
+    expect(within(header).queryByRole("link")).toBeNull();
+    expect(header.querySelector("a")).toBeNull();
+    fireEvent.click(within(header).getByText(shown));
+    expect(bodyTexts()).toEqual(["nginx", "apache"]);
+  });
+
+  it("a header keeps bold and code", async () => {
+    const { handlers } = spyHandlers();
+    mount(table("{{table}}", [
+      chain("tuid-h", ["Lab", "**Hits** `n`"]),
+      chain("tuid-a", ["apache", "1"]),
+    ]), handlers);
+    await loaded();
+    const header = within(screen.getAllByRole("rowgroup")[0]!)
+      .getAllByRole("columnheader")[1]!;
+    expect(header.querySelector("strong")?.textContent).toBe("Hits");
+    expect(header.querySelector("code")?.textContent).toBe("n");
   });
 
   it("Save refuses a sort on a header that is a block ref", async () => {

@@ -484,12 +484,157 @@ describe("DataTable headings", () => {
     expect(screen.getByRole("button", { name: "Rich name" })).toBeInTheDocument();
   });
 
-  it("a click on a link in a heading follows the link and does not sort", () => {
+  it("a click inside a heading sorts", () => {
     const { onSortClick } = mount({ columns: [
-      { ...COLUMNS[0]!, heading: <a href="#page">Page</a> }, ...COLUMNS.slice(1)] });
-    fireEvent.click(screen.getByRole("link", { name: "Page" }));
-    expect(onSortClick).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Page" }));
+      { ...COLUMNS[0]!, heading: <strong>Name</strong> }, ...COLUMNS.slice(1)] });
+    fireEvent.click(screen.getByText("Name"));
     expect(onSortClick).toHaveBeenCalledWith("name");
+  });
+});
+
+describe("DataTable keyboard entry", () => {
+  const stops = () => [...document.querySelectorAll<HTMLElement>("td")]
+    .filter((td) => td.tabIndex === 0);
+
+  it("each editable cell is a tab stop; a read-only column's cells are not", () => {
+    mount();
+    expect(stops()).toEqual([cell(0, "status"), cell(0, "year"),
+                             cell(1, "status"), cell(1, "year")]);
+    expect(cell(0, "name")).not.toHaveAttribute("tabindex");
+  });
+
+  it("no cell is a tab stop when cells cannot open", () => {
+    mount({ canEdit: false });
+    expect(stops()).toEqual([]);
+  });
+
+  it("a focused cell is found by its role and its text", () => {
+    mount();
+    expect(screen.getByRole("cell", { name: "2017" })).toBe(cell(0, "year"));
+  });
+
+  it("Enter on a focused cell opens it with the caret in the editor", () => {
+    mount();
+    act(() => { cell(0, "status").focus(); });
+    const notPrevented = fireEvent.keyDown(cell(0, "status"), { key: "Enter" });
+    expect(notPrevented).toBe(false);
+    expect(editor().value).toBe("Read");
+    expect(cell(0, "status")).toContainElement(editor());
+    expect(document.activeElement).toBe(editor());
+  });
+
+  it("Enter with a modifier, or another key, leaves a focused cell closed", () => {
+    mount();
+    act(() => { cell(0, "status").focus(); });
+    for (const key of [{ key: "Enter", shiftKey: true },
+                       { key: "Enter", altKey: true },
+                       { key: " " }, { key: "F2" }, { key: "a" }]) {
+      fireEvent.keyDown(cell(0, "status"), key);
+    }
+    expect(editor()).toBeNull();
+  });
+
+  it("Enter on a link inside a cell follows the link, not the editor", () => {
+    mount({ columns: [{ ...COLUMNS[0]!, editable: true }, ...COLUMNS.slice(1)] });
+    const link = within(cell(0, "name")).getByRole("link");
+    act(() => { link.focus(); });
+    expect(fireEvent.keyDown(link, { key: "Enter" })).toBe(true);
+    expect(editor()).toBeNull();
+  });
+
+  it("Tab on a focused cell is left to the browser", () => {
+    mount();
+    act(() => { cell(0, "status").focus(); });
+    expect(fireEvent.keyDown(cell(0, "status"), { key: "Tab" })).toBe(true);
+    expect(editor()).toBeNull();
+  });
+
+  it("Esc puts focus back on the cell it closed", () => {
+    const { onWrite } = mount();
+    act(() => { cell(0, "status").focus(); });
+    fireEvent.keyDown(cell(0, "status"), { key: "Enter" });
+    fireEvent.change(editor(), { target: { value: "Unread" } });
+    fireEvent.keyDown(editor(), { key: "Escape" });
+    expect(editor()).toBeNull();
+    expect(onWrite).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(cell(0, "status"));
+  });
+
+  it("Enter commits and puts focus back on the cell, and Enter reopens it", () => {
+    const { onWrite } = mount();
+    fireEvent.click(cell(0, "year"));
+    fireEvent.change(editor(), { target: { value: "2018" } });
+    fireEvent.keyDown(editor(), { key: "Enter" });
+    expect(onWrite).toHaveBeenCalledWith(ROWS[0], COLUMNS[2], "2018");
+    expect(document.activeElement).toBe(cell(0, "year"));
+    fireEvent.keyDown(cell(0, "year"), { key: "Enter" });
+    expect(cell(0, "year")).toContainElement(editor());
+  });
+
+  it("Tab past the last cell, or Shift-Tab before the first, focuses that cell", () => {
+    mount();
+    fireEvent.click(cell(1, "year"));
+    fireEvent.keyDown(editor(), { key: "Tab" });
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(cell(1, "year"));
+
+    fireEvent.click(cell(0, "status"));
+    fireEvent.keyDown(editor(), { key: "Tab", shiftKey: true });
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(cell(0, "status"));
+  });
+
+  it("a cell whose row goes while it is open pulls focus nowhere", () => {
+    const { rerender, onWrite, onSortClick } = mount();
+    act(() => { cell(0, "status").focus(); });
+    fireEvent.keyDown(cell(0, "status"), { key: "Enter" });
+    rerender(<DataTable columns={COLUMNS} rows={[ROWS[1]!]} rowId={(r) => r.id}
+                        renderCell={(r, c) => r[c.key as keyof Row]}
+                        rawValue={(r, c) => r[c.key as keyof Row]}
+                        sort={null} onSortClick={onSortClick} canEdit
+                        onWrite={onWrite} />);
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("a click elsewhere commits without pulling focus back to the cell", () => {
+    render(<>
+      <input aria-label="search" />
+      <DataTable columns={COLUMNS} rows={ROWS} rowId={(r) => r.id}
+                 renderCell={(r, c) => r[c.key as keyof Row]}
+                 rawValue={(r, c) => r[c.key as keyof Row]}
+                 sort={null} onSortClick={vi.fn()} canEdit onWrite={vi.fn()} />
+    </>);
+    fireEvent.click(cell(0, "status"));
+    const search = screen.getByRole("textbox", { name: "search" });
+    fireEvent.mouseDown(search);
+    act(() => { search.focus(); });
+    expect(editor()).toBeNull();
+    expect(document.activeElement).toBe(search);
+  });
+
+  it("Enter and Tab on a focused cell reach neither the host block nor window", () => {
+    const hostKey = vi.fn();
+    const windowKey = vi.fn();
+    window.addEventListener("keydown", windowKey);
+    try {
+      render(
+        <div onKeyDown={hostKey}>
+          <DataTable columns={COLUMNS} rows={ROWS} rowId={(r) => r.id}
+                     renderCell={(r, c) => r[c.key as keyof Row]}
+                     rawValue={(r, c) => r[c.key as keyof Row]}
+                     sort={null} onSortClick={vi.fn()} canEdit onWrite={vi.fn()} />
+        </div>);
+      act(() => { cell(0, "status").focus(); });
+      fireEvent.keyDown(cell(0, "status"), { key: "Tab" });
+      fireEvent.keyDown(cell(0, "status"), { key: "Tab", shiftKey: true });
+      fireEvent.keyDown(cell(0, "status"), { key: "Enter" });
+      fireEvent.keyDown(editor(), { key: "Escape" });
+      fireEvent.keyDown(cell(0, "status"), { key: "Escape" });
+      expect(hostKey).not.toHaveBeenCalled();
+      expect(windowKey).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", windowKey);
+    }
   });
 });

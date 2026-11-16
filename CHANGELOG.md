@@ -559,3 +559,27 @@ No product change.
 - The architecture docs that property models check moved into `docs/architecture/contracts/`, beside the design docs.
 - Parallel sessions can run the web property gate on their own ports, each web property file runs in its own process, and a stalled run fails.
 - Fixed bugs in sync recovery when the server rejects a change mid-recovery, in the stalled-sync banner after another problem clears, and in Retry after a later rejection, closing epic `pkm-4gda`.
+
+## 2026-11-14 — Find in page for the installed app
+
+- In the installed app, Cmd-F opens a find bar over the page and sidebar, and Cmd-G and Shift-Cmd-G step through the matches.
+- Fixed a bug in closing the find bar with Escape.
+
+## 2026-11-15 — Query tables, table editing, and Paper and Book templates
+
+- Query results show as a table with a column per `::` attribute, as cards, or as blocks, and a nested result shows its parent line.
+- Queries and `{{table}}` blocks gain type-to-filter, sorting, editable cells that write back to the source block, and saved views kept in the macro text; plain tables gain + New row.
+- The help page, the assistant and the pkm skill describe query tables and their options.
+- Empty Paper/ and Book/ pages start with their attribute blocks.
+- Property testing extended to table views and cell editing.
+- Fixed bugs in the sidebar after an offline start, and in query tables' line titles and long cells.
+
+## 2026-11-16 — Query-table fixes and scroll position on back and forward
+
+- Back and forward return each page to where it was scrolled.
+- Queries without `::` lines show their results sooner.
+- Every table cell can be reached with Tab and opened with Enter.
+- The performance check measures queries over `::` attribute lines and handles scenarios a branch adds.
+- Fixed flaky tests of saved-view options and undo.
+- Fixed bugs in query tables during resyncs and failed writes, table headers holding links, row hover over tables and query cards, and the Link button in unlinked references, closing epic `pkm-l79g`.
+- Agent rules on gates and exemptions, property-check failures, and the public repo moved from Claude's memory into AGENTS.md; notes on the assistant's model routing, the test fixture date, and font inlining moved into the architecture docs.

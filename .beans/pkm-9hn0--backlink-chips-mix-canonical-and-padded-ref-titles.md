@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-19T15:59:04Z
-updated_at: 2026-10-20T10:15:14Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
 ## Symptom
@@ -31,8 +31,7 @@ With the flag off, padded titles are distinct pages and this is correct.
 
 A `backlinkFilter` vitest: chips for items `[[ AI ]]`, `[[ML]]`,
 `[[ML ]]` on page `AI` come out `[' AI ', 'ML', 'ML ']`; expected
-`['ML' (2)]`. Written during the pkm-hc95 survey (2026-10-19); the test
-file is kept, uncommitted, in docs/superpowers/handoffs/title-bug-repros/.
+`['ML' (2)]`. Written during the pkm-hc95 survey (2026-10-19).
 
 ## Fix direction
 

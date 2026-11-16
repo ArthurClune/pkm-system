@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-25T04:38:08Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
 ---
 
-Split from pkm-qd81. The ancestor CTE builds a per-row path string, so breadcrumbs for deep blocks cost O(depth^3). Opus: rewrite without the path string. Probe (timing): docs/superpowers/handoffs/security-review-2026-10-23-probes/sec-pages/p8_ancestors.py, which becomes a perf/ case.
+Split from pkm-qd81. The ancestor CTE builds a per-row path string, so breadcrumbs for deep blocks cost O(depth^3). Opus: rewrite without the path string.
 
 - [ ] p8_ancestors as a perf/ case
 - [ ] Rewrite the ancestor CTE without the per-row path string; same output

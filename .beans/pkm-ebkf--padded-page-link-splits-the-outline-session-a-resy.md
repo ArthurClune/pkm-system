@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-10-19T15:59:04Z
-updated_at: 2026-10-20T10:00:31Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
 ## Symptom
@@ -37,8 +37,7 @@ with R1 but not R2 -> R2 disappears, no follow-up fetch.
 A PageView vitest over `/page/Paper` (control), `/page/Paper%09`,
 `/page/Paper%20`: (a) `isOutlineSessionActive` is true for both the raw and
 canonical keys; (b) the resync race above loses "remote two". Control
-passes both. Written during the pkm-hc95 survey (2026-10-19); the test file is kept,
-uncommitted, in docs/superpowers/handoffs/title-bug-repros/.
+passes both. Written during the pkm-hc95 survey (2026-10-19).
 
 ## Fix direction
 

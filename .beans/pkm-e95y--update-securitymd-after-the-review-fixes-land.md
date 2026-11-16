@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:27Z
-updated_at: 2026-10-29T18:06:16Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 blocked_by:
     - pkm-tk9i
@@ -44,7 +44,7 @@ SECURITY.md is the high-level model; update it once the fixes we take on have sh
 - [x] Origin guard (pkm-u1jk): § Authentication 'There is no CORS…' paragraph — CSRF protection is SameSite=Lax plus the origin guard (/api/ws and every non-GET/HEAD/OPTIONS request carrying an Origin must name one of PKM's own origins: serve_origins, the bind_hosts listeners, loopback on the served port; Origin: null refused); requests with no Origin are non-browser clients and still need the cookie. Known limitations: drop 'No Origin checks on writes or WebSocket upgrades'. Hardening priorities: item 4 done; item 5 must exclude Referrer-Policy: no-referrer (it makes no-cors POSTs — the Files export form, and the assistant close beacon in WebKit — send Origin: null, which the guard refuses). Safe methods stay unchecked: GET /api/journal creates today's page, GET /api/local/... can trigger an iCloud download
 - [x] Known limitations / hardening priority 2: the anonymous route-walk test now exists (pkm-t74a)
 
-- [x] Delete docs/superpowers/handoffs/security-review-2026-10-23-probes once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)
+- [x] Delete the review's local probe scripts once the last fix bean has turned its probe into a red test (pkm-t74a handed this on)
 
 - [x] Write-time limits (pkm-gc3n, pkm-bppf): block text ≤ 1,000,000 code points and [[ nesting ≤ 32, refused on every write path (ops, replica/op-queue backstops, server-made rewrites judged per axis, stale-edit replay lands a conflict entry, importer); the web grammar is linear and never throws at the cap. Open follow-ups: request size (pkm-0l8g), delete inline copies (pkm-49rh), conflict headers / title length (pkm-iruc).
 

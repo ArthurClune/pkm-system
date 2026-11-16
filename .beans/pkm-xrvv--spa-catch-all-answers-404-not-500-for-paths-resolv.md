@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-23T21:25:40Z
+updated_at: 2026-11-16T10:20:48Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
 ---
 
-Split from pkm-qd81. NUL or over-long path components, and a symlink loop in web_dist (Path.resolve() raises RuntimeError on Python 3.12), make the anonymous SPA catch-all answer 500. Probe: docs/superpowers/handoffs/security-review-2026-10-23-probes/sec-exports/p4b_spa_exc.py; symlink loop: sec-exports/report.md finding 3.
+Split from pkm-qd81. NUL or over-long path components, and a symlink loop in web_dist (Path.resolve() raises RuntimeError on Python 3.12), make the anonymous SPA catch-all answer 500.
 
 - [x] Red test: NUL, over-long component and a symlink loop each get the SPA shell, never a 500 (status asserted, not just the body)
 - [x] Catch ValueError, OSError and RuntimeError around resolve()/is_file() and serve the shell (a path that names no file)

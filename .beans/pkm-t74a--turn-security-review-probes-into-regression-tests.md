@@ -5,11 +5,11 @@ status: completed
 type: task
 priority: high
 created_at: 2026-10-23T11:00:14Z
-updated_at: 2026-10-23T12:10:07Z
+updated_at: 2026-11-16T10:20:48Z
 parent: pkm-mfd0
 ---
 
-The second review pass's probe scripts are in /Users/arthur/code/llm/pkm/docs/superpowers/handoffs/security-review-2026-10-23-probes (gitignored, this machine; README.md there maps every probe to its finding, kind and bean; each report.md has exact inputs). Probes print rather than assert. This bean reviews every probe and owns the ones that guard behaviour that held; probes that reproduce a finding are the red test of their fix bean, which says so.
+The second review pass's probe scripts were kept outside the repo and have since been deleted. Probes print rather than assert. This bean reviews every probe and owns the ones that guard behaviour that held; probes that reproduce a finding are the red test of their fix bean, which says so.
 
 Review each probe critically before converting: confirm it exercises the real code path (not a copy, e.g. the TSX slice copied into probe_preview), that the assertion would fail if the guarded behaviour broke (break it once, see it fail), and that the test sits on the right side (pytest in server/tests/, vitest beside web code). Prefer extending an existing suite (test_hostile_requests.py, test_auth.py, the export and assistant tests) over a new file.
 

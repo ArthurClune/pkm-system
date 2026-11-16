@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-10-11T12:02:05Z
-updated_at: 2026-10-11T12:34:43Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
 A `Local copy::` file the host process can't open hangs the request forever instead of failing.
@@ -31,7 +31,7 @@ The consent is tied to the launchd job's binary (Homebrew's ad-hoc-signed `uv`),
 
 ## Evidence
 
-Handover: `docs/superpowers/handoffs/2026-10-10-local-pdf-open-hang-handover.md` (gitignored). TCC.db shows `kTCCServiceFileProviderDomain` grants for `/opt/homebrew/Cellar/uv/0.12.13/bin/uv` (2026-09-21) and `/opt/homebrew/Cellar/uv/0.12.23/bin/uv` (2026-10-11 12:54); the stuck opens completed the moment the second grant was given.
+TCC.db shows `kTCCServiceFileProviderDomain` grants for `/opt/homebrew/Cellar/uv/0.12.13/bin/uv` (2026-09-21) and `/opt/homebrew/Cellar/uv/0.12.23/bin/uv` (2026-10-11 12:54); the stuck opens completed the moment the second grant was given.
 
 ## Summary of Changes
 

@@ -5,10 +5,10 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-09-24T09:42:30Z
-updated_at: 2026-09-24T09:54:40Z
+updated_at: 2026-11-16T10:20:59Z
 ---
 
-Follow-ups from the GoodLinks review (handover 2026-09-23), triaged for maintainability, consistency and YAGNI.
+Follow-ups from the GoodLinks review (2026-09-23), triaged for maintainability, consistency and YAGNI.
 
 - [x] Gateway: a non-JSON 2xx body is GoodlinksUnavailable, not an uncaught 500
 - [x] CLI: help text says "Goodlinks" like every other user-facing string; test for GoodLinks closed (exit 1, "not running")

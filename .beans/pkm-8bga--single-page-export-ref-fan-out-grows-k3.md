@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-24T17:43:17Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
 ---
 
-Split from pkm-qd81. 11 KB of blocks referencing each other export as 279 MB. Needs an output bound and what the user sees when it is hit (Arthur's call), then opus. Probe: docs/superpowers/handoffs/security-review-2026-10-23-probes/sec-exports/p5_amplify.py.
+Split from pkm-qd81. 11 KB of blocks referencing each other export as 279 MB. Needs an output bound and what the user sees when it is hit (Arthur's call), then opus.
 
 - [x] Arthur decides the user-visible result: refuse the export (2026-10-24)
 - [x] Confirm with Arthur: the bound (10 MB proposed) and how the refusal reaches the user (see Decision below). Confirmed 2026-10-24: 10 MB; 'page too large' is enough, no block named. Spec: docs/superpowers/specs/2026-10-24-page-export-size-cap-design.md

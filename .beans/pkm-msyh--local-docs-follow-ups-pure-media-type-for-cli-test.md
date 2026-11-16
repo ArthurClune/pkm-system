@@ -5,10 +5,10 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-09-21T15:00:20Z
-updated_at: 2026-09-21T15:03:16Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
-Follow-ups from pkm-g1ep (handoff 2026-09-21-local-docs-followups.md).
+Follow-ups from pkm-g1ep.
 
 - [x] FCIS: replace mimetypes.guess_type in local_docs.media_type_for with an explicit extension table (pure, deterministic)
 - [x] Extract local_pkm_client fixture in conftest.py; use it in both test_local_check_* CLI tests

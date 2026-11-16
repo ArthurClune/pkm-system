@@ -5,10 +5,10 @@ status: completed
 type: task
 priority: deferred
 created_at: 2026-10-29T11:28:40Z
-updated_at: 2026-10-29T13:55:32Z
+updated_at: 2026-11-16T10:20:48Z
 ---
 
-Split from pkm-y8hl (2026-10-29). Operational follow-up; the steps are in Arthur's local handoff notes (2026-10-29-pkm-tkgs-rotation.md).
+Split from pkm-y8hl (2026-10-29). Operational follow-up; the steps are kept out of the repo.
 
 Arthur (2026-10-29): leave it for now. Prod change: do not run without his go-ahead.
 
@@ -23,4 +23,4 @@ Arthur (2026-10-29): leave it for now. Prod change: do not run without his go-ah
 
 ## Summary of Changes
 
-Credentials rotated and old copies cleaned up on 2026-10-29; the backup job resumed after pkm-y8hl was deployed and dry-run against a clone of the mirror. Operational detail stays in Arthur's local handoff note.
+Credentials rotated and old copies cleaned up on 2026-10-29; the backup job resumed after pkm-y8hl was deployed and dry-run against a clone of the mirror. Operational detail is kept out of the repo.

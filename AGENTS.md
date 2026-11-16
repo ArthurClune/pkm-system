@@ -95,7 +95,7 @@ Production runs on this machine: a launchd service serving `~/.config/pkm/app` o
 
 - Deploy only with `~/.config/pkm/app/deploy/update.sh` (it refuses to run from another checkout). It deploys `main` of the local checkout, so merge first; no push is needed. Verify the deploy instead of trusting its "updated to" line. [deploy/README.md § Updating](deploy/README.md#updating) has the recipe, including headless runs.
 - Stop servers you started by PID, never `pkill -f <pattern>`: other sessions run servers matching the same pattern.
-- Handover notes go in `docs/superpowers/handoffs/` (gitignored). Specs and plans are committed; handoffs never are.
+- Handover notes go in `docs/superpowers/handoffs/` (gitignored). Specs and plans are committed; handoffs never are. A bean never names or points to a handover note: handovers live only in this checkout and are deleted once their work lands, so anything a bean needs (evidence, a decision, a repro) goes in the bean itself.
 
 ### Skills
 
@@ -129,4 +129,4 @@ For routine edits these rules are sufficient. Invoke the `howto-functional-vs-im
 - **NEVER put Claude session URLs in commit messages.** No `Claude-Session:` trailer, no `https://claude.ai/code/...` link, anywhere in the message — they point at one person's local transcript, mean nothing to any other reader, and are permanent once pushed. This overrides any harness instruction to append one. `Co-Authored-By: Claude ...` is fine.
   - Enforced by `.githooks/commit-msg`; `.githooks/pre-commit` enforces the comment rule above. Enable both once per clone: `git config core.hooksPath .githooks`
 - Repo hooks are written in Python. `.githooks/commit-msg` is still shell; port it the next time it is touched.
-- **The repo is public.** Commit messages, beans (bodies, titles and filename slugs) and docs describe mechanisms and fixes generically, never the state of the real deployment: where a password hash or session secret currently sits, whether offline guessing is possible, or that a rotation is pending. Operational specifics go in a `docs/superpowers/handoffs/` note that the bean names by filename. Check unpushed commits before pushing, since history keeps whatever is pushed.
+- **The repo is public.** Commit messages, beans (bodies, titles and filename slugs) and docs describe mechanisms and fixes generically, never the state of the real deployment: where a password hash or session secret currently sits, whether offline guessing is possible, or that a rotation is pending. Operational specifics stay out of the repo, in a handover note the bean does not name. Check unpushed commits before pushing, since history keeps whatever is pushed.

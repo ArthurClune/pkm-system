@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-07-22T10:12:47Z
-updated_at: 2026-07-22T13:20:00Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
 Fix A of docs/superpowers/specs/2026-07-22-sync-hardening-design.md (incident bean pkm-8uld). pullLoop swallows all errors -> cursor freezes forever invisibly (Mac stuck at seq 3911). Add stall detection (3 consecutive failed/no-progress pulls; pending-changed cap 20/loop), backoff retries (1s..60s), new ReplicaState 'stalled', SyncProblem 'replica-stalled' banner with Reset local data action reusing runRecovery('reset', {flush:true}) with failed-flush confirm.
@@ -34,4 +34,4 @@ Implemented across four tasks (6-9), closing out Fix A end to end:
 None beyond the budget rebaseline above, which was necessary to get a clean `pnpm build`/`pnpm verify` and is exactly the documented process this repo already uses for eager-entry growth (see the other rationale entries in `budgets.json`).
 
 ### Self-review
-Confirmed the `dismissProblem` no-op gap called out in the Task 9 handoff notes was real (traced through `SyncProvider.tsx`) before fixing it in both `syncState.ts`'s `"dismiss"` case and `SyncProvider.tsx`'s `dismissProblem`, with tests asserting the idle/running cases are *not* dismissable (the only signal of a broken replica) as well as the blocked/failed cases that are.
+Confirmed the `dismissProblem` no-op gap found in Task 9's review was real (traced through `SyncProvider.tsx`) before fixing it in both `syncState.ts`'s `"dismiss"` case and `SyncProvider.tsx`'s `dismissProblem`, with tests asserting the idle/running cases are *not* dismissable (the only signal of a broken replica) as well as the blocked/failed cases that are.

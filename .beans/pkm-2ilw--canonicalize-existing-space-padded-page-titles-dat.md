@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-07-31T16:43:21Z
-updated_at: 2026-08-03T12:52:04Z
+updated_at: 2026-11-16T10:21:05Z
 parent: pkm-ulae
 ---
 
@@ -162,7 +162,7 @@ Production title migration/inventory was NOT executed.
 
 ## Final Revised Title-Lane Review
 
-Fresh whole-lane review of `9770753..561b1c2` against the original title plan, approved revised title-syntax design, focused follow-up plan, handoff, code, generated contracts, documentation, and beans found no Critical or Important issues. Three non-blocking test-sensitivity improvements remain deferred: independently distinguish planner survivor/source ordering, assert reset metadata non-mutation directly, and add a direct legacy-forbidden server-read regression.
+Fresh whole-lane review of `9770753..561b1c2` against the original title plan, approved revised title-syntax design, focused follow-up plan, code, generated contracts, documentation, and beans found no Critical or Important issues. Three non-blocking test-sensitivity improvements remain deferred: independently distinguish planner survivor/source ordering, assert reset metadata non-mutation directly, and add a direct legacy-forbidden server-read regression.
 
 Fresh controller verification after review: server 1368 passed with 96.69% coverage; pyrefly reported zero errors; ruff passed; focused web verification passed 7 files / 193 tests; TypeScript, ESLint, and the 140-module FCIS check passed. The disposable CLI lifecycle had already passed against guarded temporary data/config at exactly http://127.0.0.1:18974 with process/temp cleanup.
 

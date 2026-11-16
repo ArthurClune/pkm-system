@@ -5,7 +5,7 @@ status: completed
 type: feature
 priority: normal
 created_at: 2026-07-09T19:50:01Z
-updated_at: 2026-07-09T21:53:09Z
+updated_at: 2026-11-16T10:21:00Z
 ---
 
 Sidebar panels (shift-click stack) are currently read-only BlockTree renders. Make them full editable outlines like the main pane — same useOutline editing, live WS sync — including being a drag-and-drop target/source once block DnD lands (see pkm-jg1p). Click-through-to-edit stops being the only write path for stacked pages.
@@ -46,7 +46,7 @@ Panels are now full editable outlines, not one-shot read-only fetches.
 - **`web/src/components/SidebarPanel.tsx`**: reduced to a thin wrapper
   (header + close button) delegating the body to `EditableSidebarPanel` —
   net diff is -22/+2 lines, to keep the merge with `worktree-dnd-blocks`
-  (which also touches this file, per the handover doc) as small as
+  (which also touches this file) as small as
   possible.
 - Tests: `outline/activeOutlines.test.ts` (4), `EditablePage.test.tsx` (+3:
   read-only fallback, fallback still receives remote batches, re-editable

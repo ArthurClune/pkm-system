@@ -5,7 +5,7 @@ status: completed
 type: epic
 priority: normal
 created_at: 2026-11-09T21:39:23Z
-updated_at: 2026-11-12T17:25:38Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
 Found by the maintainability review of 2026-11-09 (eight area reviewers:
@@ -15,9 +15,7 @@ at main @ 09e433e8. The lead findings were re-checked against the code by
 the orchestrating session; nothing was run.
 
 Plan: docs/superpowers/plans/2026-11-09-maintainability-review-fixes.md
-(one section per child, W1 to W19). The eight full reports are kept
-locally, uncommitted, under
-docs/superpowers/handoffs/2026-11-09-maintainability-review/.
+(one section per child, W1 to W19).
 
 ## Recurring shapes the review found
 

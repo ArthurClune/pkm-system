@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-11T15:07:38Z
-updated_at: 2026-10-11T15:23:07Z
+updated_at: 2026-11-16T10:20:59Z
 ---
 
 The `ipad-simulator` skill (and `scripts/simpad.py`) no longer works with the Xcode installed on biber (Xcode 27.0).
@@ -14,7 +14,7 @@ The `ipad-simulator` skill (and `scripts/simpad.py`) no longer works with the Xc
 
 - `Simulator.app` is gone. `Xcode.app/Contents/Applications` now holds `DeviceHub.app` (alongside Accessibility Inspector, Create ML, FileMerge, Icon Composer and Instruments).
 - `safaridriver` sessions against the simulator fail with `The file "open" couldn't be opened`. One session succeeded on 2026-10-10 before it broke, so it may be a stale state or a dependency on Simulator.app being launchable.
-- Seen while chasing the local-PDF hang (handover 2026-10-10). A small local PDF did open in the iPad simulator (iOS 26.5) that session, before sessions started failing.
+- Seen while chasing the local-PDF hang (2026-10-10). A small local PDF did open in the iPad simulator (iOS 26.5) that session, before sessions started failing.
 
 ## Todo
 

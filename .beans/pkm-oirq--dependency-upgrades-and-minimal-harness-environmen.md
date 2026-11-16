@@ -5,13 +5,13 @@ status: completed
 type: task
 priority: low
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-29T18:02:39Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 ---
 
 Review observations: pip-audit 27 advisories (pyjwt, cryptography, mcp, anyio, httpx2/httpcore2, certifi) and pnpm audit --prod 15 (dompurify via mermaid, mermaid, katex, react-router); none judged reachable, all cheap upgrades. The harness and pkm-mcp inherit the whole server env (OPENAI/GOODLINKS/z.ai keys, PKM_URL).
 
-- [x] Red test first, from the review probe: sec-assistant/drive_harness.py + envdump_mcp.py (real bundled CLI) and the sec-cross audit JSON. Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, reproducing the review's finding.
 - [x] uv lock --upgrade-package for the advisories; mermaid >= 11.16.1 and dompurify >= 3.4.17
 - [x] Give the harness subprocess an explicit minimal environment
 - [x] pkm-mcp ignores PKM_URL when PKM_CLI_CONFIG is set

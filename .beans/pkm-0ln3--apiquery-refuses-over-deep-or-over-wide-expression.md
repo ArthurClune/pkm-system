@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-23T18:15:37Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
 ---
 
-Split from pkm-qd81. Deep nesting or many operands in a query expression make /api/query 500 (recursion / work). The same limit applies to {{query}} in export. Probes: docs/superpowers/handoffs/security-review-2026-10-23-probes/sec-pages/p2_query.py, p2b_query_exc.py.
+Split from pkm-qd81. Deep nesting or many operands in a query expression make /api/query 500 (recursion / work). The same limit applies to {{query}} in export.
 
 - [x] Red test from the probes
 - [x] Parser enforces a nesting-depth and an operand-count limit; the route answers 400 naming the limit

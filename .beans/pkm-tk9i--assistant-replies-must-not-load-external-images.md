@@ -5,13 +5,13 @@ status: completed
 type: task
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T15:46:21Z
+updated_at: 2026-11-16T10:20:48Z
 parent: pkm-mfd0
 ---
 
 Review finding (High): assistant output provides an unapproved outbound data channel. AssetImage loads external URLs from assistant markdown with no click, so an injected model can exfiltrate note text in an image URL.
 
-- [x] Red test first, from the review probe: the first-pass probe was not kept; rebuild it from the review doc's reproduction (fresh Chromium, real tokenizer and AssetImage, intercepted requests). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, reproducing the review's finding.
 - [x] Assistant replies render external images as a link or placeholder (no automatic request); app-hosted /assets/ images still render
 - [x] Decide whether the same applies to note rendering generally or only assistant output (Arthur 2026-10-23: external images load on click everywhere; Bluesky embeds load on click only in assistant replies. Spec: docs/superpowers/specs/2026-10-23-external-media-click-to-load-design.md)
 - [x] Browser test with intercepted requests proving no request leaves for an external image

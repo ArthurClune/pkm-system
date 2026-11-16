@@ -5,13 +5,13 @@ status: completed
 type: task
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T18:15:45Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 ---
 
 Review findings (Medium x2 + Info): batch previews clip the whole serialized params so a uid disappears; the card collapses at PREVIEW_COLLAPSE_THRESHOLD (300) with Allow active and arguments in model-chosen order, so any write's target can sit after a long value; string values are inserted unescaped so a value can draw a fake argument list.
 
-- [x] Red test first, from the review probe: sec-assistant/probe_preview.py (card collapse, unescaped strings; it copies the TSX slice, so the web half needs a vitest on ConfirmCard itself); the first-pass batch-params probe was not kept, rebuild from the review doc. Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, reproducing the review's finding.
 - [x] Target fields (uid, page, title, parent, path, allow_merge, ...) render first and never inside the collapsed or clipped part, for every write tool and every batch op
 - [x] Clip long values individually, never a whole params object
 - [x] Render string values so they cannot imitate argument syntax
@@ -20,7 +20,7 @@ Review findings (Medium x2 + Info): batch previews clip the whole serialized par
 
 ## Decision (2026-10-23)
 
-Arthur approved the design in docs/superpowers/handoffs/2026-10-23-approval-card-design-draft.md as drafted (targets first and in full, content clipped per value, unknown keys as targets, non-schema-shaped input denied, values as quoted separate elements, allow_merge warning line, confirms queued). Next: spec, then plan.
+Arthur approved the drafted design (targets first and in full, content clipped per value, unknown keys as targets, non-schema-shaped input denied, values as quoted separate elements, allow_merge warning line, confirms queued). Next: spec, then plan.
 
 ## Summary of Changes
 

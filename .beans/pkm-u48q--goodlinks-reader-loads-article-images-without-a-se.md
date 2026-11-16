@@ -5,7 +5,7 @@ status: draft
 type: task
 priority: deferred
 created_at: 2026-10-23T15:00:12Z
-updated_at: 2026-10-29T11:28:40Z
+updated_at: 2026-11-16T10:20:48Z
 ---
 
 Adversarial review of pkm-tk9i (M3). Opening the GoodLinks reader
@@ -31,7 +31,7 @@ the GoodLinks copy, not the source site.
 
 ## Research (2026-10-25) — blocked on Arthur's choice
 
-GoodLinks' local API has no image endpoint; article HTML/markdown carry only the original https URLs (15 sampled articles, 0–283 remote <img> each). GoodLinks does download images into per-link folders in its sandbox (library DB at ~/Library/Group Containers/group.com.ngocluu.goodlinks/Data/data.sqlite), but reading those folders hangs on macOS's 'access data from other apps' consent check — the prod server would hit the same block. Full evidence: docs/superpowers/handoffs/2026-10-25-u48q-goodlinks-images-research.md (gitignored, main checkout).
+GoodLinks' local API has no image endpoint; article HTML/markdown carry only the original https URLs (15 sampled articles, 0–283 remote <img> each). GoodLinks does download images into per-link folders in its sandbox (library DB at ~/Library/Group Containers/group.com.ngocluu.goodlinks/Data/data.sqlite), but reading those folders hangs on macOS's 'access data from other apps' consent check — the prod server would hit the same block.
 
 Options for Arthur: A) grant the server's launcher access to GoodLinks' data and map its undocumented layout (fragile across GoodLinks updates; needs read timeouts); B) PKM fetches and keeps its own copy of each article's images once (the Mac contacts source sites, not GoodLinks' copy); C) no images — drop <img>, keep alt text; D) ask GoodLinks' developer for an image endpoint, C or today's behaviour meanwhile. Any option: give the reader iframe a CSP allowing images only from the app (or none for C).
 

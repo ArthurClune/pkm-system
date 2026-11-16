@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T18:15:37Z
-updated_at: 2026-10-25T08:20:15Z
+updated_at: 2026-11-16T10:20:48Z
 parent: pkm-mfd0
 blocking:
     - pkm-e95y
 ---
 
-Split from pkm-u8uh. The throttle is checked before the password and a failure recorded after, so 200 concurrent guesses ran 40 scrypt checks. Opus designs: reserve the attempt (or hold a per-source lock) before the scrypt check. Mind the anyio threadpool, the scrypt semaphore and its 2 s timeout. Probe: docs/superpowers/handoffs/security-review-2026-10-23-probes/sec-cross/probe_throttle.py.
+Split from pkm-u8uh. The throttle is checked before the password and a failure recorded after, so 200 concurrent guesses ran 40 scrypt checks. Opus designs: reserve the attempt (or hold a per-source lock) before the scrypt check. Mind the anyio threadpool, the scrypt semaphore and its 2 s timeout.
 
 - [x] Red test: the probe's 200-concurrent burst expects one check per backoff window
 - [x] Fix

@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T11:49:58Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 ---
 
 Review finding (Medium; Low after the fact-finding below): ops_preview only lists ops when batch.commands is a list. A JSON string falls through to the generic clipped dump (no op count; trailing commands invisible), then FastMCP pre_parse_json turns it back into a list and apply_batch runs all of it.
 
-- [x] Red test first, from the review probe: sec-assistant/probe_preview.py (string-encoded commands). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, reproducing the review's finding.
 - [x] First establish whether the Claude CLI validates MCP input against inputSchema before can_use_tool (if it does, this is defence in depth)
 - [x] Preview the input exactly as the tool will receive it (same pre-parse), or deny a write whose input is not schema-shaped
 - [x] Test with the payload from the review report

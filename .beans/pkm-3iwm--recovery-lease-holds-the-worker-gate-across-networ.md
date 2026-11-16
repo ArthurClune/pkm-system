@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-11-09T21:39:24Z
-updated_at: 2026-11-11T13:12:35Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-4gda
 blocked_by:
     - pkm-onr2
@@ -64,9 +64,7 @@ gzip end to end; renewal is covered by the unit, props and property tests.
 Gates on the merged branch: pnpm verify, full server pytest, pyrefly, ruff,
 regen (no diff), perf backend, proptest web --file sync. Skipped by
 agreement: proptest server and other web suites, perf frontend.
-Whole-branch review: report-w11-review.md (0 blockers); fixes in
-report-w11-fix.md. Reports live in the gitignored handoffs directory
-docs/superpowers/handoffs/2026-11-09-maintainability-review/.
+Whole-branch review: 0 blockers; its fixes are on the branch.
 
 Follow-ups: pkm-j0u0, pkm-9o9m, pkm-1pzy, pkm-49o0, pkm-qx59, pkm-ll64,
 pkm-t3km, pkm-pmym.

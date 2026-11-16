@@ -5,7 +5,7 @@ status: completed
 type: epic
 priority: normal
 created_at: 2026-09-01T21:26:51Z
-updated_at: 2026-09-02T05:47:46Z
+updated_at: 2026-11-16T10:20:47Z
 ---
 
 Umbrella for the 2026-09-01 frontend performance/energy investigation, prompted by heavy laptop CPU on train wifi (the specific FK wedge was fixed in pkm-qvlx; this is the general follow-up).
@@ -18,7 +18,7 @@ Reconstructed train symptom: server drops WS clients whose send exceeds 1 s (`ws
 
 ## Where the detail lives
 
-The re-runnable Playwright measurement harness (`seed.mjs`, `perf.mjs`, `ws-probe.mjs`, `summarize.mjs`) is committed at `web/tooling/perf/` with the recipe and Playwright caveats in its README; the pre-fix baseline (`results.json`, `ws-probe.json`, report) is `web/tooling/perf/baselines/2026-09-01/`. The three full sub-reports (sync/background audit, rendering audit, runtime measurement) remain in the gitignored local dir `docs/superpowers/handoffs/2026-09-01-frontend-perf/`. Re-measure after each child lands.
+The re-runnable Playwright measurement harness (`seed.mjs`, `perf.mjs`, `ws-probe.mjs`, `summarize.mjs`) is committed at `web/tooling/perf/` with the recipe and Playwright caveats in its README; the pre-fix baseline (`results.json`, `ws-probe.json`, report) is `web/tooling/perf/baselines/2026-09-01/`. Re-measure after each child lands.
 
 Measurement gotcha: Playwright `context.setOffline(true)` burns 60-100% CPU in Chromium's NetworkService and never closes the app's WebSocket — useless for this. Use `routeWebSocket` refusal + delayed-503 routes instead (that is what `ws-probe.mjs` does).
 

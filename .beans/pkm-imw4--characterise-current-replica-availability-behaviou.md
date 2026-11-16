@@ -5,7 +5,7 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-08-04T12:54:38Z
-updated_at: 2026-08-04T14:45:06Z
+updated_at: 2026-11-16T10:21:00Z
 parent: pkm-q2jj
 blocking:
     - pkm-za9j
@@ -17,10 +17,10 @@ Part of epic pkm-q2jj. Design: docs/superpowers/specs/2026-08-04-replica-availab
 
 ## Baseline (measured before this task's two new tests)
 
-Per the controller (Task 1 landed after the handover, adding tests): unit
+Per the controller (Task 1 landed later, adding tests): unit
 1985/1985 passing, coverage 97.7% statements / 93.11% branches / 95.18%
 functions / 97.7% lines, e2e 51/51, 0 jsdom warnings. This supersedes the
-handover's 122/1972/97.7%/93.09%/51 -- Task 1 added tests since that number
+earlier 122/1972/97.7%/93.09%/51 -- Task 1 added tests since that number
 was taken. No further investigation needed per controller ruling.
 
 After adding the two tests specified in Steps 2 and 4: `pnpm verify` on

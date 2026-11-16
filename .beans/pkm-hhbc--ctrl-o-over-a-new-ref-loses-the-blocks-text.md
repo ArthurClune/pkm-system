@@ -5,7 +5,7 @@ status: completed
 type: bug
 priority: normal
 created_at: 2026-07-30T18:50:09Z
-updated_at: 2026-07-30T19:08:49Z
+updated_at: 2026-11-16T10:20:59Z
 ---
 
 Navigating to a [[ref]] with Ctrl-O / Ctrl-Shift-O while the caret is still inside the ref token discards the block's held draft: the block persists EMPTY and the typed text is lost.
@@ -59,7 +59,7 @@ No other repair outstanding -- see Scope of damage found.
 
 ## Notes for a fresh session
 
-Everything needed to fix this is above; no separate handover doc. Worth knowing:
+Everything needed to fix this is above. Worth knowing:
 
 - Work in a worktree/branch per CLAUDE.md, write the failing test first.
 - The two safety mechanisms that combine into this bug are each individually correct. Do NOT weaken the pkm-xlah flush-hold (it exists so a half-typed [[title does not create a junk page) and do NOT drop the pkm-a1e4 POST /api/pages (it exists because a held draft means the ref page has no row yet). The fix is purely about ordering: flush, then create, then navigate.

@@ -5,13 +5,13 @@ status: completed
 type: bug
 priority: high
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-23T12:30:04Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 ---
 
 Review finding (Low, integrity of the nightly markdown backup): page_filename dedupes with str.lower(), but APFS also folds Unicode normalization and full case folding. café NFC/NFD, Straße/STRASSE, ς/σ, ﬀ/ff overwrite each other silently; export_graph still counts both.
 
-- [x] Red test first, from the review probe: sec-exports/p2_zip.py (collision half). Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, reproducing the review's finding.
 - [x] Dedupe key matches APFS: NFD/NFC-normalise and casefold
 - [x] Same for the selected-asset zip arcnames
 - [x] Test that every page in the DB appears in the archive

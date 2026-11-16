@@ -5,13 +5,13 @@ status: completed
 type: task
 priority: normal
 created_at: 2026-10-23T10:56:19Z
-updated_at: 2026-10-24T18:26:27Z
+updated_at: 2026-11-16T10:20:47Z
 parent: pkm-mfd0
 ---
 
 Review finding (Low): an approved upload_asset reads any service-account-readable file with an allowed extension, follows symlinks, and resolves relative paths against the server cwd (app/server in production), so ../../data/config.json is the server's secret config. The card shows the path as emitted.
 
-- [x] Red test first, from the review probe: sec-assistant/probe_upload.py. Probes live in docs/superpowers/handoffs/security-review-2026-10-23-probes (main checkout, gitignored; README maps probes)
+- [x] Red test first, reproducing the review's finding.
 - [x] Decide containment (Arthur, 2026-10-24): remove upload_asset from the in-app assistant entirely; keep it in pkm-mcp
 - [x] Assistant: drop upload_asset from WRITE_TOOLS / WRITE_PREVIEW_FIELDS / the system prompt's write-verb list (pkm.assistant.policy), so the assistant's MCP allow-list never offers it; a test that the assistant's tool list excludes it and that a call to it is denied
 - [x] Docs: the assistant section says the assistant cannot read host files, and why

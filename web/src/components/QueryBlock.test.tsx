@@ -276,7 +276,8 @@ const stat = (name: string, count: number): KeyStat =>
 const BOOK_KEYS = [stat("Author", 2), stat("Reading Status", 1),
                    stat("Published", 1), stat("Publication", 1),
                    stat("Format", 0)];
-const BOOKS = { records: [ALPHA_BOOK, BETA_BOOK], keys: BOOK_KEYS, total: 2 };
+const BOOKS: QueryRecordsPayload = {
+  records: [ALPHA_BOOK, BETA_BOOK], keys: BOOK_KEYS, total: 2, groups: null };
 const BOOK_GROUPS = [
   group(1, "Book/Alpha", [["res_alpha", "Type:: [[Book]]"]]),
   group(2, "Book/Beta", [["res_beta", "Type:: [[Book]]"]]),
@@ -356,7 +357,7 @@ describe("query views", () => {
 
   it("shows blocks by default when no record has :: lines", async () => {
     stubBooks({ ...BOOKS, records: [bookRecord("p:alpha", "Book/Alpha", {})],
-                keys: [], total: 1 });
+                keys: [], total: 1, groups: BOOK_GROUPS });
     renderBlock(`{{query: ${BOOK}}}`);
     expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
@@ -435,7 +436,7 @@ describe("query views", () => {
       Status: bookCell("lstatus", "Status:: Read"),
     }, { kind: "line", uid: uidOf("linex1234"), row_title: "Some line",
          insert_parent_uid: uidOf("linex1234") })],
-                keys: [stat("Status", 1)], total: 1 });
+                keys: [stat("Status", 1)], total: 1, groups: null });
     renderBlock(`{{query: ${BOOK}}}`);
     fireEvent.click(await screen.findByRole("link", { name: "Some line" }));
     expect(screen.getByTestId("loc"))
@@ -451,7 +452,7 @@ describe("query views", () => {
       Status: bookCell("lstatus", "Status:: Read"),
     }, { kind: "line", uid: uidOf("linex1234"), row_title: MARKED,
          insert_parent_uid: uidOf("linex1234") })],
-                keys: [stat("Status", 1)], total: 1 });
+                keys: [stat("Status", 1)], total: 1, groups: null });
     renderBlock(`{{query: ${BOOK}}}`);
     await screen.findByRole("table");
     const check = () => {
@@ -991,5 +992,40 @@ describe("one request per default view", () => {
     });
     expect(screen.queryByText("old result")).toBeNull();
     expect(screen.getByText("new result")).toBeInTheDocument();
+  });
+
+  it("follows the reader off a saved blocks view: a resync skips /api/query", async () => {
+    const mock = stubBooks();
+    const { setSync } = renderBlock(`{{query: ${BOOK} | view: blocks}}`);
+    expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Table" }));
+    setSync(makeSync("connected", { resyncGeneration: 1 }));
+    await vi.waitFor(() => expect(urls(mock).filter(
+      (u) => u === recordsUrl(BOOK_ENC))).toHaveLength(2));
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(urls(mock).filter((u) => u.startsWith("/api/query?")))
+      .toHaveLength(1);
+  });
+
+  it("fetches the blocks the reader picked while the records failed", async () => {
+    const later = defer<Response>();
+    let recordCalls = 0;
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith(recordsUrl(BOOK_ENC))) {
+        recordCalls += 1;
+        return recordCalls === 1 ? Promise.resolve(jsonResponse(BOOKS))
+          : later.promise;
+      }
+      return Promise.resolve(jsonResponse({ groups: BOOK_GROUPS, total: 2 }));
+    }));
+    const { setSync } = renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    setSync(makeSync("connected", { resyncGeneration: 1 }));
+    await vi.waitFor(() => expect(recordCalls).toBe(2));
+    fireEvent.click(screen.getByRole("button", { name: "Blocks" }));
+    later.resolve(jsonResponse({ detail: "boom" }, 500));
+    expect(await screen.findByText(/500/)).toBeInTheDocument();
+    expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
   });
 });

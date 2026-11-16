@@ -379,3 +379,21 @@ def test_records_groups_come_from_the_records_snapshot(client, seeded_config,
 
     monkeypatch.setattr(query_records_db, "_result_blocks", racing)
     assert _records(client, "{and: [[Topic]]}") == before
+
+
+def test_records_without_cells_run_the_plan_once(client, seeded_config):
+    """The groups are built from the rows the records read, so a query
+    without cells neither re-runs the plan nor counts its matches."""
+    _ops(client, _line("todo_a", "Page A", "first #Topic", 0))
+    db = open_db(seeded_config.db_path)
+    statements: list[str] = []
+    trace(db, statements.append)
+    try:
+        payload = query_records(expr="{and: [[Topic]]}", db=db)
+    finally:
+        trace(db, None)
+        db.close()
+    assert payload.groups
+    assert [s for s in statements if "count(*) AS n FROM (" in s] == []
+    assert len([s for s in statements
+                if "ORDER BY p.title, b.uid" in s]) == 1

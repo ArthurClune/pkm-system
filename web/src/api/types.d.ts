@@ -1934,7 +1934,7 @@ export interface components {
             /** Total */
             total: number;
             /** Groups */
-            groups?: components["schemas"]["QueryGroup"][] | null;
+            groups: components["schemas"]["QueryGroup"][] | null;
         };
         /**
          * RecordCell

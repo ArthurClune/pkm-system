@@ -22,10 +22,12 @@ from pkm.server.fts import escape_fts_query, like_escape
 from pkm.server.grouping import (ChangedRow, group_by_page, group_changed,
                                     group_query_results)
 from pkm.refs import CanonicalTitle
+from pkm.rows import Row
 from pkm.server.query import (
     plan_sql, QueryParseError)
 from pkm.server.query_exec import (
-    count_matches, execute_plan, page_queries, parse_canonical_query)
+    count_matches, execute_plan, iter_plan_rows, page_queries,
+    parse_canonical_query)
 from pkm.server.query_records_db import records_in_snapshot
 from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
@@ -90,9 +92,12 @@ def _grouped_matches(db: Db, sql: str,
                      params: Sequence[str]) -> _GroupedMatches:
     """A plan's results as `/api/query` groups them."""
     matches = execute_plan(db, sql, params)
-    ancestors = fetch_parents(db, [r["uid"] for r in matches.rows])
-    return _GroupedMatches(group_query_results(matches.rows, ancestors),
-                           matches.total)
+    return _GroupedMatches(_groups(db, matches.rows), matches.total)
+
+
+def _groups(db: Db, plan_rows: Sequence[Row]) -> list[QueryGroup]:
+    ancestors = fetch_parents(db, [r["uid"] for r in plan_rows])
+    return group_query_results(plan_rows, ancestors)
 
 
 @router.get("/api/query/records", response_model=QueryRecordsPayload)
@@ -108,12 +113,14 @@ def query_records(expr: str,
         raise HTTPException(status_code=400, detail=str(e))
     # One snapshot, so the groups cannot show a result the records lack.
     with read_txn(db):
-        found = records_in_snapshot(db, sql, params)
-        # The web defaults to the blocks view exactly when no record has
-        # cells (queryDefaults in web/src/tables/queryView.ts); send the
-        # groups it will then show so that view needs no second request.
+        rows = list(iter_plan_rows(db, sql, params))
+        found = records_in_snapshot(db, rows)
+        # The blocks view is the default exactly when no record has cells,
+        # and the web reads that from `groups` (queryDefaults in
+        # web/src/tables/queryView.ts); sending them means that view needs
+        # no second request.
         groups = (None if any(rec.cells for rec in found.records)
-                  else _grouped_matches(db, sql, params).groups)
+                  else _groups(db, rows))
     return QueryRecordsPayload(records=found.records, keys=found.keys,
                                total=len(found.records), groups=groups)
 

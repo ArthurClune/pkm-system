@@ -189,10 +189,12 @@ and `span`, the whole `{{...}}` in the text the tokenizer was given.
 `QueryBlock` is the eager shell. `QueryResults` reads
 `GET /api/query/records` first, since the records decide the default view.
 When no record has a cell the default is blocks and the records answer
-carries the groups (the server's condition and `queryDefaults` are the same
-rule; each side has a test pinning it), so that view needs no second
-request. Otherwise `/api/query` is read for the groups: alongside the records
-when the macro saves `view: blocks`, on demand when the reader picks Blocks.
+carries the groups, so that view needs no second request; `queryDefaults`
+reads the default from whether `groups` is null, so the rule lives on the
+server only. Otherwise `/api/query` is read for the groups: alongside the
+records whenever the macro saves `view: blocks` and the reader has not
+picked another view (discarded if the records carry the groups), on demand
+when the reader picks Blocks.
 
 | View | Shows |
 |---|---|

@@ -55,6 +55,7 @@ describe("defaultColumns", () => {
       total: 4,
       keys: [stat("author", 4), stat("status", 2), stat("type", 1),
              stat("isbn", 1)],
+      groups: null,
     };
     expect(defaultColumns(p)).toEqual(["author", "status"]);
     const lead = { ...p, total: 2 };

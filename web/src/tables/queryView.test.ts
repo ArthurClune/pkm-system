@@ -52,18 +52,26 @@ const B = record("p:b", "Beta", {
   Author: cell("a2", "author:: Yolanda"),
 });
 const KEYS = [stat("Author", 2), stat("Reading Status", 1)];
-const PAYLOAD: QueryRecordsPayload = { records: [A, B], keys: KEYS, total: 2 };
+const PAYLOAD: QueryRecordsPayload =
+  { records: [A, B], keys: KEYS, total: 2, groups: null };
 
 describe("queryDefaults", () => {
-  it("is a table of the shared keys' labels when any record has cells", () => {
+  it("is a table of the shared keys' labels when the records carry no groups", () => {
     const p = { ...PAYLOAD, keys: [stat("Author", 2, "Writer"),
                                    stat("Reading Status", 1)], total: 3 };
     expect(queryDefaults(p)).toEqual({ view: "table", columns: ["Writer"] });
   });
 
-  it("is blocks when no record has a :: line", () => {
-    const bare = { records: [record("p:c", "C", {})], keys: [], total: 1 };
+  it("is blocks when the records carry the groups", () => {
+    const bare = { records: [record("p:c", "C", {})], keys: [], total: 1,
+                   groups: [] };
     expect(queryDefaults(bare)).toEqual({ view: "blocks", columns: [] });
+  });
+
+  it("follows the server's rule, which the groups carry", () => {
+    const bare = { records: [record("p:c", "C", {})], keys: [], total: 1,
+                   groups: null };
+    expect(queryDefaults(bare).view).toBe("table");
   });
 });
 
@@ -157,10 +165,15 @@ describe("holdRecords", () => {
       .toEqual(none);
   });
 
-  it("holds only frozen ids, and nothing while unfrozen", () => {
+  it("holds only frozen ids while frozen", () => {
     expect(holdRecords([A, B], none, [], ["p:b"]))
       .toEqual(new Map([["p:b", B]]));
-    expect(holdRecords([A, B], new Map([["p:a", A]]), [], null)).toEqual(none);
+  });
+
+  it("holds only this refetch's drops while unfrozen", () => {
+    expect(holdRecords([B], new Map([["p:a", A]]), [], null))
+      .toEqual(new Map([["p:b", B]]));
+    expect(holdRecords([A, B], none, [A, B], null)).toEqual(none);
   });
 });
 

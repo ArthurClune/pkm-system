@@ -31,11 +31,12 @@ const SOURCE = "Source";
  * key (the attribute page). */
 export interface QueryColumn { name: string; label: string; key: string }
 
+/** The server sends the groups exactly when no record has a `::` cell,
+ * which is when the default view is blocks. */
 export function queryDefaults(p: QueryRecordsPayload): ViewDefaults {
   const labelOf = new Map(p.keys.map((k) => [k.key as string, k.label]));
   return {
-    view: p.records.some((r) => Object.keys(r.cells).length > 0)
-      ? "table" : "blocks",
+    view: p.groups === null ? "table" : "blocks",
     columns: defaultColumns(p).map((k) => labelOf.get(k) ?? k),
   };
 }
@@ -83,18 +84,19 @@ export function shownRows(
  * each frozen id `next` lacks keeps its last record, from `prev` or from
  * `held`, so an edit that makes a row stop matching the query itself does
  * not take the row out from under the reader. An id `next` returns again
- * shows `next`'s record, and nothing is held once the view is not frozen. */
+ * shows `next`'s record. While unfrozen it keeps what this refetch dropped
+ * from `prev`, which the view ignores: an edit whose freeze is not yet
+ * committed when the refetch lands still finds the row it froze. */
 export function holdRecords(
   prev: readonly QueryRecordModel[],
   held: ReadonlyMap<string, QueryRecordModel>,
   next: readonly QueryRecordModel[], frozen: readonly string[] | null,
 ): Map<string, QueryRecordModel> {
   const out = new Map<string, QueryRecordModel>();
-  if (frozen === null) return out;
   const returned = new Set(next.map((r) => r.key));
-  const last = new Map(held);
+  const last = new Map(frozen === null ? [] : held);
   for (const r of prev) last.set(r.key, r);
-  for (const key of frozen) {
+  for (const key of frozen ?? last.keys()) {
     const r = last.get(key);
     if (!returned.has(key) && r !== undefined) out.set(key, r);
   }

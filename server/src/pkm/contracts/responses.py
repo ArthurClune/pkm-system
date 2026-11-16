@@ -8,14 +8,16 @@ that drifts from this file fails on the client with a named field rather
 than as a KeyError inside a renderer.
 
 Keep every field required (no defaults): the routes always populate them, and
-optionality here would surface as `?:` in the generated TypeScript."""
+optionality here would surface as `?:` in the generated TypeScript. A field
+the JSON leaves out when empty is named in an `OmitEmptyModel`'s
+`omit_when_empty`."""
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from functools import cache
-from typing import Annotated, Literal, NewType
+from typing import Annotated, ClassVar, Literal, NewType
 
-from pydantic import (BaseModel, BeforeValidator, Field, SerializerFunctionWrapHandler, model_serializer)
+from pydantic import (BeforeValidator, Field, SerializerFunctionWrapHandler,
+                      model_serializer)
 from pkm.contracts.strict import StrictModel
 from pkm.contracts.text import WellFormedModel
 
@@ -73,62 +75,69 @@ def walk_blocks(nodes: Sequence[BlockNode]) -> Iterator[BlockNode]:
         yield from walk_blocks(n.children)
 
 
-@cache
-def _check_omittable(cls: type[BaseModel], fields: tuple[str, ...]) -> None:
-    """Refuse a field left out when empty unless a `default_factory` gives
-    its default. openapi-typescript types a property whose schema carries a
-    `default` as required, and a field with no default is required anyway,
-    so either would promise the web a field the JSON leaves out."""
-    for name in fields:
-        if cls.model_fields[name].default_factory is None:
+class OmitEmptyModel(StrictModel):
+    """A model whose serializer leaves out each field in `omit_when_empty`
+    when it is empty. Each such field is declared with
+    `Field(default_factory=...)`: openapi-typescript types a property whose
+    schema carries a `default` as required, and a field with no default is
+    required anyway, so either would promise the web a field the JSON
+    leaves out. The class refuses any other declaration when it is
+    defined, so the mistake fails at import."""
+    omit_when_empty: ClassVar[tuple[str, ...]] = ()
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: object) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        if not cls.omit_when_empty:
             raise TypeError(
-                f"{cls.__name__}.{name} is left out when empty, so declare it "
-                "with Field(default_factory=...): a plain default puts "
-                "`default` in the schema, which the generated TypeScript "
-                "makes required")
-
-
-def _omit_empty(model: BaseModel, handler: SerializerFunctionWrapHandler,
-                *fields: str) -> object:
-    """Serialize `model`, leaving out each of `fields` that is empty."""
-    _check_omittable(type(model), fields)
-    data = handler(model)
-    if isinstance(data, dict):
-        for field in fields:
-            if not data.get(field):
-                data.pop(field, None)
-    return data
-
-
-class BacklinkItem(StrictModel):
-    """A block linking the page (or block). `ancestors` is its breadcrumb
-    trail, root first, as positions in its group's `ancestor_texts`; left
-    out when the block has no parent."""
-    uid: BlockUid
-    text: str
-    ancestors: list[int] = Field(default_factory=list)
+                f"{cls.__name__} derives from OmitEmptyModel but sets no "
+                "omit_when_empty: name the fields to leave out, or derive "
+                "from StrictModel")
+        for name in cls.omit_when_empty:
+            field = cls.model_fields.get(name)
+            if field is None:
+                raise TypeError(
+                    f"{cls.__name__}.omit_when_empty names {name!r}, but the "
+                    "model has no field of that name")
+            if field.default_factory is None:
+                raise TypeError(
+                    f"{cls.__name__}.{name} is left out when empty, so "
+                    "declare it with Field(default_factory=...): a plain "
+                    "default puts `default` in the schema, which the "
+                    "generated TypeScript makes required")
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
         # No return annotation: pydantic reads it into the OpenAPI schema.
-        return _omit_empty(self, handler, "ancestors")
+        data = handler(self)
+        if isinstance(data, dict):
+            for name in self.omit_when_empty:
+                if not data.get(name):
+                    data.pop(name, None)
+        return data
 
 
-class BacklinkGroup(StrictModel):
+class BacklinkItem(OmitEmptyModel):
+    """A block linking the page (or block). `ancestors` is its breadcrumb
+    trail, root first, as positions in its group's `ancestor_texts`; left
+    out when the block has no parent."""
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("ancestors",)
+    uid: BlockUid
+    text: str
+    ancestors: list[int] = Field(default_factory=list)
+
+
+class BacklinkGroup(OmitEmptyModel):
     """One source page's backlinks. `ancestor_texts` holds the text of each
     ancestor its items' trails name, once, in first-appearance order; left
     out when no item has a trail. A trail of texts on every item repeated
     a deep chain's shared ancestors about depth²/2 times. An ancestor is
     on its item's page, so no two groups share one."""
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("ancestor_texts",)
     page_id: PageId
     page_title: CanonicalTitle
     items: list[BacklinkItem]
     ancestor_texts: list[str] = Field(default_factory=list)
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
-        # No return annotation: pydantic reads it into the OpenAPI schema.
-        return _omit_empty(self, handler, "ancestor_texts")
 
 
 class Backlinks(StrictModel):
@@ -237,36 +246,24 @@ class GroupsPayload(StrictModel):
     total: int
 
 
-class QueryItem(GroupItem):
+class QueryItem(GroupItem, OmitEmptyModel):
     """A query result. `ancestors` is its parent line: one position in its
     group's `ancestor_texts`, left out for a top-level block. Only the
     direct parent, not the whole trail."""
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("ancestors",)
     ancestors: list[int] = Field(default_factory=list)
 
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
-        # No return annotation: pydantic reads it into the OpenAPI schema.
-        return _omit_empty(self, handler, "ancestors")
 
-
-class QueryGroup(StrictModel):
+class QueryGroup(OmitEmptyModel):
     """One page's query results. `ancestor_texts` and `ancestor_uids` are
     aligned and hold each distinct parent its items name, once, in
     first-appearance order; both left out when no item is nested."""
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("ancestor_texts", "ancestor_uids")
     page_id: PageId
     page_title: CanonicalTitle
     items: list[QueryItem]
     ancestor_texts: list[str] = Field(default_factory=list)
     ancestor_uids: list[BlockUid] = Field(default_factory=list)
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
-        # No return annotation: pydantic reads it into the OpenAPI schema.
-        data = handler(self)
-        if isinstance(data, dict) and not data.get("ancestor_texts"):
-            data.pop("ancestor_texts", None)
-            data.pop("ancestor_uids", None)
-        return data
 
 
 class QueryPayload(StrictModel):
@@ -277,7 +274,7 @@ class QueryPayload(StrictModel):
     ref_counts: dict[CanonicalTitle, int]
 
 
-class RecordCell(StrictModel):
+class RecordCell(OmitEmptyModel):
     """One record's `::` line for one column. `text` is the block as
     written, `key_raw` its key as spelled there, and `value` the text after
     `::`, leading whitespace trimmed and line breaks kept. `value_start`
@@ -286,6 +283,7 @@ class RecordCell(StrictModel):
     `extra_uids` are the record's later lines for the same key, and
     `child_count` the first line's children; neither is shown in the cell,
     and both are left out when empty."""
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("extra_uids", "child_count")
     uid: BlockUid
     key_raw: str
     text: str
@@ -293,11 +291,6 @@ class RecordCell(StrictModel):
     value_start: int
     extra_uids: list[BlockUid] = Field(default_factory=list)
     child_count: int = Field(default_factory=int)
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
-        # No return annotation: pydantic reads it into the OpenAPI schema.
-        return _omit_empty(self, handler, "extra_uids", "child_count")
 
 
 class QueryRecordModel(StrictModel):
@@ -341,7 +334,7 @@ class QueryRecordsPayload(StrictModel):
     records: list[QueryRecordModel]
     keys: list[KeyStat]
     total: int
-    groups: list[QueryGroup] | None = None
+    groups: list[QueryGroup] | None
 
 
 class ChangedItem(StrictModel):
@@ -602,15 +595,8 @@ class AppliedBatch(StrictModel):
     skipped: list[SkippedOp]
 
 
-def _omit_empty_applied(model: BaseModel,
-                        handler: SerializerFunctionWrapHandler) -> object:
-    """Serialize `model`, leaving `applied_batches` out when it is empty: a
-    request that named no pending batches gets the payload it got before the
-    field existed, byte for byte."""
-    return _omit_empty(model, handler, "applied_batches")
-
-
-class ChangesPayload(StrictModel):
+class ChangesPayload(OmitEmptyModel):
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("applied_batches",)
     reset: bool = False
     generation: str
     plain_space_title_canonicalization: bool
@@ -623,13 +609,8 @@ class ChangesPayload(StrictModel):
     # The second exception to "keep every field required", like OpsAck's
     # seq/skipped: a client must also read a server that predates the field,
     # so the generated TypeScript marks it optional. Left out of the JSON
-    # when empty (_omit_empty_applied).
+    # when empty (omit_when_empty).
     applied_batches: list[AppliedBatch] = Field(default_factory=list)
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
-        # No return annotation: pydantic reads it into the OpenAPI schema.
-        return _omit_empty_applied(self, handler)
 
 
 class BlockPayload(StrictModel):
@@ -640,7 +621,8 @@ class BlockPayload(StrictModel):
     block_ref_texts: dict[BlockUid, BlockRefText]
 
 
-class SnapshotPayload(StrictModel):
+class SnapshotPayload(OmitEmptyModel):
+    omit_when_empty: ClassVar[tuple[str, ...]] = ("applied_batches",)
     generation: str
     plain_space_title_canonicalization: bool
     seq: SyncSeq
@@ -649,11 +631,6 @@ class SnapshotPayload(StrictModel):
     sidebar: list[SyncSidebarEntry]
     # optional, and left out when empty, as ChangesPayload.applied_batches
     applied_batches: list[AppliedBatch] = Field(default_factory=list)
-
-    @model_serializer(mode="wrap")
-    def _serialize(self, handler: SerializerFunctionWrapHandler):  # noqa: ANN202
-        # No return annotation: pydantic reads it into the OpenAPI schema.
-        return _omit_empty_applied(self, handler)
 
 
 # The Claude aliases plus z.ai's GLM. Lives here (not

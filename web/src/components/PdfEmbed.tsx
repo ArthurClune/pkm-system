@@ -11,13 +11,25 @@
 // clicked. A page that lists dozens of `Local copy::` papers would otherwise
 // fetch and parse every one of them on render, and each evicted file would
 // kick off an iCloud download on the host.
-import { type ComponentType, type MouseEvent, useEffect, useRef, useState } from "react";
+import {
+  type ComponentType, type MouseEvent, type RefObject, useEffect, useRef, useState,
+} from "react";
 import { lazyLoader } from "./lazyComponent";
 import { PdfFallbackLink } from "./PdfFallbackLink";
 import { hostFailureNote } from "./pdfViewerCore";
 
-type ViewerProps = { href: string; label: string; onClose?: () => void };
-type EmbedProps = ViewerProps & { deferred?: boolean };
+type ViewerProps = {
+  href: string; label: string; onClose?: () => void;
+  /** Overlay mode: focus returns here on close. A click in WebKit does not
+   * focus the button that opened the overlay. */
+  triggerRef?: RefObject<HTMLElement | null>;
+};
+type EmbedProps = ViewerProps & {
+  deferred?: boolean;
+  /** Overlay mode: the viewer chunk failed. With it set, nothing renders
+   * inline and the caller closes; a table cell must not grow a link. */
+  onError?: () => void;
+};
 
 const loadViewer = lazyLoader(() => import("./PdfViewer").then((m) => m.PdfViewer));
 
@@ -51,9 +63,14 @@ async function probeAndDownload(href: string): Promise<string | null> {
   return null;
 }
 
-export function PdfEmbed({ href, label, onClose, deferred = false }: EmbedProps) {
+export function PdfEmbed({ href, label, onClose, triggerRef, onError,
+                          deferred = false }: EmbedProps) {
+  const overlay = onClose !== undefined;
   const [armed, setArmed] = useState(!deferred);
-  const [state, setState] = useState<ViewerState>({ status: "loading" });
+  const [state, setState] = useState<ViewerState>(() => {
+    const Viewer = overlay ? loadViewer.peek() : undefined;
+    return Viewer ? { status: "ok", Viewer } : { status: "loading" };
+  });
   const [probeNote, setProbeNote] = useState<string | undefined>();
   const probing = useRef(false);
   const mounted = useRef(false);
@@ -96,6 +113,13 @@ export function PdfEmbed({ href, label, onClose, deferred = false }: EmbedProps)
     };
   }, [armed]);
 
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const failed = state.status === "error";
+  useEffect(() => {
+    if (failed && overlay) onErrorRef.current?.();
+  }, [failed, overlay]);
+
   if (!armed) {
     return (
       <PdfFallbackLink
@@ -112,12 +136,17 @@ export function PdfEmbed({ href, label, onClose, deferred = false }: EmbedProps)
       />
     );
   }
-  if (state.status === "loading") return <PdfFallbackLink href={href} label={label} />;
+  // An overlay opens over the page; until it can, nothing shows in place.
+  if (state.status === "loading") {
+    return overlay ? null : <PdfFallbackLink href={href} label={label} />;
+  }
   if (state.status === "error") {
+    if (overlay && onError !== undefined) return null;
     return <PdfFallbackLink href={href} label={label} note="Couldn't load the PDF viewer." />;
   }
   const { Viewer } = state;
   // A new href is a new document: remounting drops the old one's state and
   // any load still in flight for it.
-  return <Viewer key={href} href={href} label={label} onClose={onClose} />;
+  return <Viewer key={href} href={href} label={label} onClose={onClose}
+                 triggerRef={triggerRef} />;
 }

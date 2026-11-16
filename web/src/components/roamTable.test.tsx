@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, vi, type Mock } from "vitest";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockOp, CreateOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { BlockRefContext } from "../contexts";
+import { BlockRefContext, OutlinePageContext } from "../contexts";
 import { roamTable } from "../outline/roamTableRows";
 import type { OutlineHandlers } from "../outline/handlers";
 import { block, canonicalTitleOf, orderIdxOf, uidOf } from "../test-helpers";
+import { pagePath } from "../paths";
 import { RoamTable } from "./roamTable";
 
 const PAGE = canonicalTitleOf("Lab notes");
@@ -367,5 +368,135 @@ describe("RoamTable", () => {
     fireEvent.click(screen.getByText("3 of 3 rows"));
     fireEvent.click(screen.getByRole("button", { name: "+ New row" }));
     expect(hostClick).not.toHaveBeenCalled();
+  });
+});
+
+const IMG = `![Bed](/assets/${"ab".repeat(32)}/bed.png)`;
+const MERMAID = "```mermaid\ngraph TD; A-->B\n```";
+
+/** A table whose first body row holds an image in its second cell
+ * (tuid-ax) and whose second holds a mermaid block (tuid-bx). */
+const mediaTable = () => table("{{table}}", [
+  chain("tuid-h", ["Lab", "Media"]),
+  chain("tuid-a", ["apache", IMG]),
+  chain("tuid-b", ["nginx", MERMAID]),
+]);
+
+function LocProbe() {
+  const loc = useLocation();
+  return <p data-testid="loc">{loc.pathname + loc.hash}</p>;
+}
+
+function mountMedia() {
+  const { handlers } = spyHandlers();
+  const ui = (n: BlockNode) => {
+    const tt = roamTable(n)!;
+    return (
+      <MemoryRouter initialEntries={[pagePath(PAGE)]}>
+        <OutlinePageContext.Provider value={PAGE}>
+          <RoamTable node={n} rows={tt.rows} options={tt.options}
+                     handlers={handlers} editable />
+        </OutlinePageContext.Provider>
+        <LocProbe />
+      </MemoryRouter>
+    );
+  };
+  const utils = render(ui(mediaTable()));
+  return { ...utils, rerenderNode: (n: BlockNode) => utils.rerender(ui(n)) };
+}
+
+const imageLabel = () =>
+  screen.getByRole("button", { name: "Open image full screen: Bed" });
+const tableEditor = () =>
+  screen.getByRole("table").querySelector("textarea");
+
+describe("RoamTable media cells", () => {
+  it("label_click_does_not_open_the_cell", async () => {
+    mountMedia();
+    await loaded();
+    fireEvent.click(imageLabel());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(tableEditor()).toBeNull();
+  });
+
+  it("escape_in_the_viewer_closes_it_not_the_cell", async () => {
+    mountMedia();
+    await loaded();
+    const label = imageLabel();
+    label.focus();
+    fireEvent.click(label);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(tableEditor()).toBeNull();
+    expect(label).toHaveFocus();
+  });
+
+  it("enter_in_the_viewer_does_not_open_the_cell", async () => {
+    mountMedia();
+    await loaded();
+    fireEvent.click(imageLabel());
+    const dialog = screen.getByRole("dialog");
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(close, { key: "Enter" });
+    fireEvent.click(dialog);
+    expect(tableEditor()).toBeNull();
+  });
+
+  it("click_beside_the_label_still_opens_the_cell", async () => {
+    mountMedia();
+    await loaded();
+    fireEvent.click(imageLabel().closest("td")!);
+    expect(tableEditor()).not.toBeNull();
+  });
+
+  it("a_rerender_keeps_the_viewer_open", async () => {
+    const { rerenderNode } = mountMedia();
+    await loaded();
+    fireEvent.click(imageLabel());
+    rerenderNode(mediaTable());
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("td_carries_the_cell_uid", async () => {
+    mountMedia();
+    await loaded();
+    expect(imageLabel().closest("td"))
+      .toHaveAttribute("data-cell-uid", "tuid-ax");
+    expect(imageLabel().closest("td")).not.toHaveAttribute("data-uid");
+  });
+
+  it("a line label goes to the cell's own block on this page", async () => {
+    mountMedia();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "↗ Mermaid diagram" }));
+    expect(screen.getByTestId("loc"))
+      .toHaveTextContent(`${pagePath(PAGE)}#tuid-bx`);
+    expect(tableEditor()).toBeNull();
+  });
+});
+
+describe("RoamTable media cells before the tables chunk loads", () => {
+  it("shows labels, fetches nothing and anchors the cell", async () => {
+    vi.resetModules();
+    const fresh = await import("./roamTable");
+    const ctx = await import("../contexts");
+    const t = roamTable(mediaTable())!;
+    const { handlers } = spyHandlers();
+    const { container } = render(
+      <MemoryRouter>
+        <ctx.OutlinePageContext.Provider value={PAGE}>
+          <fresh.RoamTable node={mediaTable()} rows={t.rows}
+                           options={t.options} handlers={handlers} editable />
+        </ctx.OutlinePageContext.Provider>
+      </MemoryRouter>);
+    expect(screen.getByRole("table")).toHaveClass("roam-table");
+    expect(container.querySelector("img")).toBeNull();
+    expect(imageLabel().closest("td"))
+      .toHaveAttribute("data-cell-uid", "tuid-ax");
+    expect(screen.getByRole("button", { name: "↗ Mermaid diagram" }))
+      .toBeInTheDocument();
+    await loaded();
+    vi.resetModules();
   });
 });

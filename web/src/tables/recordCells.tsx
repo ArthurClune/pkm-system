@@ -4,10 +4,11 @@
 // `::` value with the badges for what the cell leaves out.
 import { useContext } from "react";
 import { useNavigate } from "react-router";
+import type { RawTitle } from "../api/brands";
 import type { QueryRecordModel, RecordCell } from "../api/payloads";
 import { InlineSegments } from "../components/InlineSegments";
 import { PageLink } from "../components/PageLink";
-import { InertMediaContext, SidebarContext } from "../contexts";
+import { CellMediaContext, InertMediaContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { pagePath } from "../paths";
 
@@ -55,12 +56,15 @@ export function RecordSource({ record }: { record: QueryRecordModel }) {
   );
 }
 
-export function CellValue({ cell, depth }: { cell: RecordCell; depth: number }) {
+export function CellValue({ cell, page, depth }:
+    { cell: RecordCell; page: RawTitle; depth: number }) {
   const lines = 1 + (cell.extra_uids ?? []).length;
   const children = cell.child_count ?? 0;
   return (
     <>
-      <InlineSegments segments={tokenizeBlock(cell.value)} depth={depth} />
+      <CellMediaContext.Provider value={{ page, uid: cell.uid }}>
+        <InlineSegments segments={tokenizeBlock(cell.value)} depth={depth} />
+      </CellMediaContext.Provider>
       {lines > 1 && (
         <span className="query-cell-badge"
               title={`${lines} ${cell.key_raw}:: lines; an edit changes the first`}>

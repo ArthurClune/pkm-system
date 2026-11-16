@@ -53,3 +53,31 @@ export function isSafeHref(href: string): boolean {
   if (/^(https?:|mailto:)/i.test(href)) return true;
   return href.startsWith("/") && !/^\/[/\\]/.test(href);
 }
+
+/** PDFs the in-app viewer can fetch same-origin: content-addressed assets
+ * and files served from the configured local document root. A path that
+ * climbs out of either prefix names some other route, so it stays a link.
+ * The whole href must end in .pdf, so a download link such as a.pdf?dl=1
+ * stays a link; a query or fragment ending in .pdf still embeds. */
+export function isPdfHref(href: string): boolean {
+  if (!isUploadedAsset(href) && !isPathUnder(href, "/api/local/")) return false;
+  return href.toLowerCase().endsWith(".pdf");
+}
+
+/** Local-copy PDFs load on click, not on render: a page listing many papers
+ * must not fetch them all at once. Only uploaded assets keep the inline
+ * auto-load, by the same test that lets an image load. */
+export function isDeferredPdfHref(href: string): boolean {
+  return !isUploadedAsset(href);
+}
+
+/** Display label for a {{[[pdf]]: …}} macro, which carries no link text:
+ * the decoded filename portion of the href (raw on malformed encoding). */
+export function pdfLabelFromHref(href: string): string {
+  const name = href.slice(href.lastIndexOf("/") + 1);
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}

@@ -4,7 +4,8 @@ import { expect, it, vi } from "vitest";
 import type { BlockRefText } from "../api/payloads";
 import { BlockRefContext, SidebarContext } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
-import { InlineSegments, isDeferredPdfHref, isPdfHref } from "./InlineSegments";
+import { isDeferredPdfHref, isPdfHref } from "./externalMedia";
+import { InlineSegments } from "./InlineSegments";
 import { canonicalTitleOf } from "../test-helpers";
 
 // See MermaidDiagram.test.tsx: vi.mock factories are hoisted, so any

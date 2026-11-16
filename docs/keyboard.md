@@ -210,6 +210,11 @@ Click a cell in a table, or in a query's table view, to edit it. Clicking a
 link in a cell follows the link instead. From the keyboard, Tab reaches each
 cell you can edit; press Enter on one to edit it.
 
+A PDF or image in a cell or card shows as a 📄 or 🖼 label: click it to open
+it full screen, and Escape takes you back to the table as you left it. Other
+embeds (a diagram, code, a Bluesky post, a query) show as a ↗ label that goes
+to the line holding them; Shift-click opens that line in the sidebar.
+
 | Shortcut | Action |
 |---|---|
 | Click a column header | Sort by that column: ascending, then descending, then unsorted |

@@ -55,7 +55,8 @@ export function useScrollFlashTarget(
     if (!ready || !uid) return;
     const scope = root ? root.current : document;
     if (!scope) return;
-    const el = scope.querySelector(`[data-uid="${CSS.escape(uid)}"]`);
+    const id = CSS.escape(uid);
+    const el = scope.querySelector(`[data-uid="${id}"], [data-cell-uid="${id}"]`);
     if (!el) return; // deleted, or not yet revealed
     const centre = () => el.scrollIntoView({ block: "center" });
     centre();

@@ -46,6 +46,10 @@ export interface DataTableProps<R> {
    * onCellOpened says it has been, so the caller can drop the request. */
   openCell?: CellRef | null;
   onCellOpened?: () => void;
+  /** Written as the body cell's `data-cell-uid`, where a jump to the line
+   * the cell shows finds it. Never `data-uid`: the outline, drop zones and
+   * find bar read that as a block row. */
+  cellAnchor?: (r: R, c: Column) => string | null;
 }
 
 const IDLE: EditorState = { kind: "idle" };
@@ -53,7 +57,7 @@ const IDLE: EditorState = { kind: "idle" };
 export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                                sort, onSortClick, staleIds, canEdit, onWrite,
                                cellHint, suggest, headerMenu, openCell,
-                               onCellOpened }: DataTableProps<R>) {
+                               onCellOpened, cellAnchor }: DataTableProps<R>) {
   const [editor, setEditor] = useState<EditorState>(IDLE);
   // Read by dispatch, which can run twice before a re-render (the capture
   // mousedown commits, then the click opens another cell).
@@ -240,6 +244,7 @@ export function DataTable<R>({ columns, rows, rowId, renderCell, rawValue,
                     .filter(Boolean).join(" ");
                   return (
                     <td key={c.key} className={classes || undefined}
+                        data-cell-uid={cellAnchor?.(r, c) ?? undefined}
                         tabIndex={editable(c) ? 0 : undefined}
                         onClick={editable(c) ? (e) => onCellClick(e, r, c)
                           : undefined}

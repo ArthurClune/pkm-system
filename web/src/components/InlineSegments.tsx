@@ -1,19 +1,24 @@
 // pattern: Imperative Shell
-// Dispatches each tokenized segment to its renderer. isPdfHref,
-// isDeferredPdfHref and pdfLabelFromHref below are pure, and
-// goodlinksIdFromHref lives in goodlinks.ts, but the module as a whole composes
+// Dispatches each tokenized segment to its renderer. The pure decisions
+// live in externalMedia.ts and goodlinks.ts; the module as a whole composes
 // several Imperative Shell components (AssetImage, BlockRef, PageLink,
 // TodoCheckbox, BlueskyEmbed, MermaidDiagram, QueryBlock, GoodlinksLink) that
 // read React context, fetch, or navigate, so it's a shell rather than a pure
 // rendering decision.
+import { useContext } from "react";
+import { CellMediaContext } from "../contexts";
 import type { BlockSegment } from "../grammar/tokenize";
 import { AssetImage } from "./AssetImage";
 import { AssetLink } from "./AssetLink";
 import { BlockRef } from "./BlockRef";
 import { isBlueskyPostUrl } from "./bluesky";
 import { BlueskyEmbed } from "./BlueskyEmbed";
+import { cellMedia } from "./cellMediaCore";
+import { CellMediaLabel } from "./CellMediaLabel";
 import { CodeBlock } from "./CodeBlock";
-import { isPathUnder, isSafeHref, isUploadedAsset } from "./externalMedia";
+import {
+  isDeferredPdfHref, isPdfHref, isSafeHref, pdfLabelFromHref,
+} from "./externalMedia";
 import { goodlinksIdFromHref } from "./goodlinks";
 import { GoodlinksLink } from "./GoodlinksLink";
 import { MathSpan } from "./MathSpan";
@@ -22,34 +27,6 @@ import { PageLink } from "./PageLink";
 import { PdfEmbed } from "./PdfEmbed";
 import { QueryBlock } from "./QueryBlock";
 import { TodoCheckbox } from "./TodoCheckbox";
-
-/** PDFs the in-app viewer can fetch same-origin: content-addressed assets
- * and files served from the configured local document root. A path that
- * climbs out of either prefix names some other route, so it stays a link.
- * The whole href must end in .pdf, so a download link such as a.pdf?dl=1
- * stays a link; a query or fragment ending in .pdf still embeds. */
-export function isPdfHref(href: string): boolean {
-  if (!isUploadedAsset(href) && !isPathUnder(href, "/api/local/")) return false;
-  return href.toLowerCase().endsWith(".pdf");
-}
-
-/** Local-copy PDFs load on click, not on render: a page listing many papers
- * must not fetch them all at once. Only uploaded assets keep the inline
- * auto-load, by the same test that lets an image load. */
-export function isDeferredPdfHref(href: string): boolean {
-  return !isUploadedAsset(href);
-}
-
-/** Display label for a {{[[pdf]]: …}} macro, which carries no link text:
- * the decoded filename portion of the href (raw on malformed encoding). */
-function pdfLabelFromHref(href: string): string {
-  const name = href.slice(href.lastIndexOf("/") + 1);
-  try {
-    return decodeURIComponent(name);
-  } catch {
-    return name;
-  }
-}
 
 export function InlineSegments({ segments, depth = 0 }:
     { segments: BlockSegment[]; depth?: number }) {
@@ -61,6 +38,9 @@ export function InlineSegments({ segments, depth = 0 }:
 }
 
 function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
+  const inCell = useContext(CellMediaContext) !== null;
+  const media = inCell ? cellMedia(seg) : null;
+  if (media !== null) return <CellMediaLabel media={media} />;
   switch (seg.kind) {
     case "text":
       return <>{seg.text}</>;

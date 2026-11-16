@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
-import { isPdfHref } from "../components/InlineSegments";
+import { isPdfHref } from "../components/externalMedia";
 import { scanMarkdownLinkAt } from "../grammar/markdown";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { assetLabel, assetNameFromSegment } from "./assetNames";

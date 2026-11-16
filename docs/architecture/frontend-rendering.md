@@ -86,6 +86,30 @@ resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
 `tocEntries.ts`, `isTocMacro`) and a table macro (`roamTable`, rendered by
 `RoamTable`), both only while the row is unfocused.
 
+### Media in table cells
+
+A query's Table and Cards cells (`CellValue`) and a plain table's body cells
+(`PlainTable`) provide `CellMediaContext`, naming the cell's page and uid.
+Under it, `Segment` asks `cellMedia` (`cellMediaCore.ts`) first, and a
+segment that would render as an embed becomes a one-line `CellMediaLabel`.
+A row stays table-sized, and nothing is fetched until the label's click. A
+value's other segments render as they do anywhere else.
+
+| `cellMedia` kind | From | Click | Shift-click |
+|---|---|---|---|
+| `pdf` | a link or `pdf-embed` with `isPdfHref` | `PdfEmbed` in overlay mode (`onClose`), as `/files` opens a PDF | same |
+| `image` | an `image` segment, upload or external | `ImageOverlay` | same |
+| `line` | a bare Bluesky post URL, a code block, a mermaid diagram, a query | the line that holds it: `pagePath(page)#uid` | `openInSidebar(page, uid)` |
+
+The label is a button that stops its click: the `<td>` opens the cell editor
+on any click that reaches it. A plain table's line is the cell's own block,
+on the page `OutlinePageContext` names (`EditablePage` provides it). With no
+page the line label is plain text. The jump finds a plain-table cell by the
+`data-cell-uid` that `DataTable`'s `cellAnchor` writes on the `<td>`, never
+`data-uid`, which `useOutline`, `useDropZone` and `FindBar` read as a block
+row. Row titles (`RecordLink`) keep media inert instead, under
+`InertMediaContext`.
+
 `TodoCheckbox`, a query's cell editor and its "Save this view" act on the host
 block through `BlockEditContext`. Only an editable row provides it, so a
 backlink, a sidebar panel or a read-only outline renders them inert.
@@ -249,6 +273,9 @@ on the host. A file the host does not serve becomes a note
 download first asks for one byte (`Range: bytes=0-0`; the route has no HEAD),
 and only a success starts the native download.
 
+In a table cell a PDF is a label that opens the overlay instead
+([Media in table cells](#media-in-table-cells)).
+
 `InlineSegments` keys each `PdfEmbed` by its href, so an embed's click-to-load
 state (`armed`) never survives an href change. Reusing the instance would load
 a deferred PDF without its click.
@@ -284,6 +311,9 @@ media renders through `ClickToLoad`:
 | `AssetImage`, any src but an upload | everywhere | `externalImageLabel`, naming the host |
 | `BlueskyEmbed` (its handle lookup and iframe reach Bluesky) | under `UntrustedContentContext`, which `AssistantPanel` provides; notes embed on render | `Bluesky post from <actor>` |
 | `MermaidDiagram`'s stock fallback | under `UntrustedContentContext`; a diagram beautiful-mermaid renders shows directly | `Render diagram`, below the source |
+
+In a table cell an external image is a label, and its click opens
+`ImageOverlay` directly: that click is the consent `ClickToLoad` asks for.
 
 `ClickToLoad` keeps its children unmounted until the click, because the fetch
 starts at commit. It compares the revealed key with the current one during

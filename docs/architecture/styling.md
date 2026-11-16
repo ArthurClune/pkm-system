@@ -97,7 +97,11 @@ Buttons and fields are styled by named class, and there is no bare
   `.input-control`. A header with a column menu wraps the sort button and
   `.data-table-menu` in `.data-table-head`. A query block adds `.query-views`
   (the view switch, `aria-pressed` on the shown view), `.query-cards` and
-  `.query-cell-badge`.
+  `.query-cell-badge`. `.cell-media-label` is media in a cell: a borderless
+  button in `--color-link` that reads as a link, or a muted `span` when it
+  has nowhere to go. A jump to a plain-table cell flashes its `<td>` with
+  `td.flash-target`, whose keyframes have no `to`, so the cell's opaque fill
+  returns instead of the row behind showing through.
 - **Anchors among buttons.** The global `a` rule sets `font-weight: 600`, so
   an anchor placed among buttons pins its weight in its own component rule.
 

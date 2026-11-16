@@ -437,6 +437,15 @@ the attribute `island` sets), focused cells included. A click into a cell
 leaves a block selection standing, and Cmd-Backspace, Cmd-C or
 Shift-Cmd-Arrow there would otherwise act on the selected blocks.
 
+Media in a body cell renders as a label
+([frontend-rendering.md § Media in table cells](frontend-rendering.md#media-in-table-cells)).
+A click on the label never opens the cell; a click elsewhere in the cell
+does. The full-screen viewer portals out of the table, but React bubbles its
+events back through the `<td>`. Both overlays stop their own clicks, and
+`onCellKeyDown` opens only on a key aimed at the `<td>` itself, so a key or
+click in the viewer leaves the cell shut. `useModal` hears Escape on
+`window` in the capture phase, ahead of the island's stop.
+
 A column header is the sort `<button>`, so `headerSegments` writes out
 everything interactive in a plain table's header as text: links, images,
 TODOs and queries. A link, button or checkbox inside a button is invalid

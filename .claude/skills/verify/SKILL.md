@@ -17,13 +17,19 @@ server; never run it unset, and never point verification at 8974.
    static files and runs Python from source, so an existing dist built on this
    branch is already current. Rebuilding "to be safe" is never needed — a
    stale dist is only possible if `web/` changed since the last build.
-2. Scratch server config (data dir anywhere disposable):
+2. Scratch data and config (data dir anywhere disposable). Seed the synthetic
+   graph first, since the generator refuses to write over an existing
+   database:
 
    ```bash
    cd server
+   uv run python -m pkm.test_data.generate --out "$SCRATCH"
    uv run python -m pkm.server.setup --data-dir "$SCRATCH" \
      --password testpw --insecure-cookie --web-dist ../web/dist
    ```
+
+   [test-data/README.md](../../../test-data/README.md) lists what the graph
+   holds. Skip the generate line when the check needs an empty database.
 
    `--web-dist` is resolved **relative to the data dir**; when the data dir is
    outside the repo, patch `config.json` afterwards to set `web_dist` to the
@@ -36,8 +42,10 @@ server; never run it unset, and never point verification at 8974.
 
 4. Drive with agent-browser (`--session <name>` to isolate):
    - `/login` page → fill password `testpw`, click "log in".
-   - The DB starts empty: click a journal day's "Click to start writing…" to
-     create blocks; typed text flushes to the server after ~500 ms debounce.
+   - Open a seeded page at `/page/<title>` (`Reading List` has every query
+     view; `Formatting Lab` has tables and rendering). Today's journal starts
+     empty: click its "Click to start writing…" to create blocks; typed text
+     flushes to the server after ~500 ms debounce.
    - Block editing happens in a bare `<textarea>`; `press "Meta+a"` does NOT
      select-all in headless CDP — position the caret with
      `eval 'el.setSelectionRange(...)'` or repeated Backspace instead.

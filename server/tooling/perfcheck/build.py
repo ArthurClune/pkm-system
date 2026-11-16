@@ -169,6 +169,12 @@ def build(dest: Path, seed: int = 1, scale: float = 1.0) -> None:
         con.executemany("INSERT INTO sidebar_entries(title, order_idx) VALUES (?,?)",
                         [(t, i) for i, t in enumerate(fx.sidebar)])
         con.commit()
+        # Write scenarios' trigger counts depend on the FTS segment phase:
+        # the first FTS write pays a crisis merge whose size follows the
+        # fixture. One segment per index makes them independent of it.
+        for fts in ("blocks_fts", "pages_fts"):
+            con.execute(f"INSERT INTO {fts}({fts}) VALUES('optimize')")
+        con.commit()
         con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         con.close()

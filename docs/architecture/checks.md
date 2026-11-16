@@ -158,8 +158,11 @@ Rules a change to the gate must keep:
   expands) are pinned beside the code that needs them. The fixture build
   pins the `db_generation` the schema seeds randomly (`FIXTURE_DB_GENERATION`),
   because the gzipped sync snapshot carries it and a fresh value moves
-  `api_bytes` by a byte or two. Metrics that stay noisy under these controls
-  are classed `band` or `timing`.
+  `api_bytes` by a byte or two. It also optimizes both FTS indexes, so a
+  write scenario's `trigger_statements` do not depend on the fixture's FTS
+  segment phase (the first FTS write otherwise pays a crisis merge whose
+  presence follows the fixture's size). Metrics that stay noisy under these
+  controls are classed `band` or `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)
   decides comparability, so a schema or query change is measured rather than

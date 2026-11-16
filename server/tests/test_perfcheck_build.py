@@ -192,3 +192,15 @@ def test_build_pins_db_generation(tmp_path):
         ).fetchone()[0])
         con.close()
     assert gens[0] == gens[1] == b.FIXTURE_DB_GENERATION
+
+
+@pytest.mark.parametrize("table", ["blocks_fts", "pages_fts"])
+def test_build_leaves_each_fts_index_as_one_segment(tmp_path, table):
+    # an unmerged index makes the first FTS write of a scenario pay a segment
+    # merge whose size depends on the fixture, shifting every write count
+    dest = tmp_path / "fx.sqlite3"
+    b.build(dest, seed=1, scale=0.02)
+    con = connect(dest)
+    segments = read(con, f"SELECT COUNT(DISTINCT segid) FROM {table}_idx").fetchone()[0]
+    con.close()
+    assert segments == 1

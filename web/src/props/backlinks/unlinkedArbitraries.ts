@@ -4,7 +4,7 @@
 // lifecycle's refusals are drawn as often as its steps.
 import fc from "fast-check";
 
-export type Target = "pending" | "settled" | "delivered" | "error a" | "error b";
+export type Target = "pending" | "queued" | "delivered" | "error a" | "error b";
 
 export interface Step {
   /** Which of the section's blocks the move is for. */
@@ -21,7 +21,7 @@ export interface Example {
 export const BLOCKS = 4;
 
 const targetArb = fc.constantFrom<Target>(
-  "pending", "settled", "delivered", "error a", "error b");
+  "pending", "queued", "delivered", "error a", "error b");
 
 export const stepArb: fc.Arbitrary<Step> = fc.record({
   block: fc.nat({ max: BLOCKS - 1 }), to: targetArb,

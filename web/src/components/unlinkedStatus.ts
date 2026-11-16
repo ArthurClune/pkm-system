@@ -3,12 +3,16 @@
 //
 //   none or error -> pending     a click
 //   none or error -> error       no safe match, or a text over its limit
-//   pending       -> settled     the ticket settles (durable locally)
-//   pending       -> error       queueing throws or the settle fails
-//   settled       -> delivered   the server applied the write
-//   settled       -> error       delivery fails; the block shows again
+//   pending       -> queued      the ticket settles, either outcome
+//   pending       -> error       queueing throws
+//   queued        -> delivered   the server applied the write
+//   queued        -> error       delivery fails; the block shows again
 //
-// A settled block is hidden, but the server may still list it, so it counts
+// A settle that failed still queues: unless the replica rejected the op, the
+// queue keeps it and delivers it, and a rejected op fails delivery too, so
+// only delivery decides the error.
+//
+// A queued block is hidden, but the server may still list it, so it counts
 // out of the shown total and the next offset. A delivered block has left the
 // server's list; the section drops it from the loaded groups and the total,
 // and its status stays so that a batch answered before the link landed
@@ -17,7 +21,7 @@ import type { BlockUid } from "../api/brands";
 import type { BlockGroup } from "../api/payloads";
 
 export type LinkStatus =
-  | "pending" | "settled" | "delivered" | { readonly error: string };
+  | "pending" | "queued" | "delivered" | { readonly error: string };
 export type LinkStatuses = ReadonlyMap<BlockUid, LinkStatus>;
 
 function isError(
@@ -33,15 +37,15 @@ export function canLink(status: LinkStatus | undefined): boolean {
 
 /** The block shows in the list. */
 export function isListed(status: LinkStatus | undefined): boolean {
-  return status !== "settled" && status !== "delivered";
+  return status !== "queued" && status !== "delivered";
 }
 
 function allowed(from: LinkStatus | undefined, to: LinkStatus): boolean {
   if (isError(to)) return from !== "delivered";
   switch (to) {
     case "pending": return canLink(from);
-    case "settled": return from === "pending";
-    case "delivered": return from === "settled";
+    case "queued": return from === "pending";
+    case "delivered": return from === "queued";
   }
 }
 
@@ -59,9 +63,9 @@ export function withStatus(
   return new Map(statuses).set(uid, status);
 }
 
-export function settledCount(statuses: LinkStatuses): number {
+export function queuedCount(statuses: LinkStatuses): number {
   let n = 0;
-  for (const status of statuses.values()) if (status === "settled") n += 1;
+  for (const status of statuses.values()) if (status === "queued") n += 1;
   return n;
 }
 
@@ -75,10 +79,10 @@ export function withoutDelivered(
   }));
 }
 
-/** /api/unlinked pages by blocks. A settled block may still be listed:
+/** /api/unlinked pages by blocks. A queued block may still be listed:
  * counting it out can only re-fetch a block mergeGroups drops, where
  * counting it in could skip one. A delivered block is already out of
  * `loadedCount`. */
 export function nextOffset(loadedCount: number, statuses: LinkStatuses): number {
-  return loadedCount - settledCount(statuses);
+  return loadedCount - queuedCount(statuses);
 }

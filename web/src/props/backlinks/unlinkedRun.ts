@@ -6,7 +6,7 @@
 import type { BlockUid } from "../../api/brands";
 import type { BlockGroup } from "../../api/payloads";
 import {
-  canLink, isListed, nextOffset, settledCount, withoutDelivered, withStatus,
+  canLink, isListed, nextOffset, queuedCount, withoutDelivered, withStatus,
   type LinkStatus, type LinkStatuses,
 } from "../../components/unlinkedStatus";
 import { canonicalTitleOf, pageIdOf, uidOf } from "../../test-mint";
@@ -17,13 +17,13 @@ export interface UnlinkedOps {
   readonly withStatus: typeof withStatus;
   readonly canLink: typeof canLink;
   readonly isListed: typeof isListed;
-  readonly settledCount: typeof settledCount;
+  readonly queuedCount: typeof queuedCount;
   readonly nextOffset: typeof nextOffset;
   readonly withoutDelivered: typeof withoutDelivered;
 }
 
 export const REAL_OPS: UnlinkedOps = {
-  withStatus, canLink, isListed, settledCount, nextOffset, withoutDelivered,
+  withStatus, canLink, isListed, queuedCount, nextOffset, withoutDelivered,
 };
 
 export interface RunResult {
@@ -70,7 +70,7 @@ export function runExample(example: Example, ops: UnlinkedOps = REAL_OPS): RunRe
     const ok = allowed(from, to) && from !== to;
     if (ok) {
       reached.add(`${from} to ${to.startsWith("error") ? "error" : to}`);
-      if (to.startsWith("error") && from === "settled") reached.add("delivery fails after settle");
+      if (to.startsWith("error") && from === "queued") reached.add("delivery fails after queueing");
       if (from === "error a" || from === "error b") {
         if (to === "pending") reached.add("error retried");
         else reached.add("error message replaced");
@@ -94,19 +94,19 @@ export function runExample(example: Example, ops: UnlinkedOps = REAL_OPS): RunRe
         problems.push(`listed: block ${at} (${model[at]})`);
       }
     });
-    const settled = model.filter((s) => s === "settled").length;
-    if (ops.settledCount(statuses) !== settled) {
-      problems.push(`settled-count: ${ops.settledCount(statuses)}, model ${settled}`);
+    const queued = model.filter((s) => s === "queued").length;
+    if (ops.queuedCount(statuses) !== queued) {
+      problems.push(`queued-count: ${ops.queuedCount(statuses)}, model ${queued}`);
     }
-    if (ops.nextOffset(example.loaded, statuses) !== example.loaded - settled) {
-      problems.push(`next-offset: ${ops.nextOffset(example.loaded, statuses)}, model ${example.loaded - settled}`);
+    if (ops.nextOffset(example.loaded, statuses) !== example.loaded - queued) {
+      problems.push(`next-offset: ${ops.nextOffset(example.loaded, statuses)}, model ${example.loaded - queued}`);
     }
     const kept = ops.withoutDelivered(groups, statuses).flatMap((g) => g.items.map((x) => x.uid));
     const wantKept = uids.filter((_, at) => model[at] !== "delivered");
     if (kept.join() !== wantKept.join()) {
       problems.push(`delivered-hidden: kept ${kept.length} blocks, model ${wantKept.length}`);
     }
-    if (model.includes("delivered") && model.includes("settled")) reached.add("delivered beside settled");
+    if (model.includes("delivered") && model.includes("queued")) reached.add("delivered beside queued");
 
     if (problems.length > 0) {
       return { problems: problems.map((p) => `${p} (step ${i})`), reached, at: i };

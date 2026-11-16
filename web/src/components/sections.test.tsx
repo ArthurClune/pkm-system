@@ -691,7 +691,8 @@ it("hides a durably persisted item and notifies only after delivery", async () =
   await vi.waitFor(() => expect(onLinked).toHaveBeenCalledTimes(1));
 });
 
-it("retains the item when local persistence fails", async () => {
+it("hides the item without an error while a write whose local persistence " +
+   "failed awaits delivery", async () => {
   stubFetch([["/api/unlinked?title=ACME", unlinkedPayload()]]);
   const sync = makeSync();
   const settled = deferred<WriteOutcome>();
@@ -720,9 +721,9 @@ it("retains the item when local persistence fails", async () => {
     settled.resolve({ status: "failed", error: new Error("disk full") });
     await settled.promise;
   });
-  expect(screen.getByText("Acme created it")).toBeInTheDocument();
-  expect(await screen.findByText("Error: disk full")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: "Link" })[0]).toBeEnabled();
+  expect(screen.queryByText("Acme created it")).toBeNull();
+  expect(screen.queryByText("Error: disk full")).toBeNull();
+  expect(sync.enqueue).toHaveBeenCalledTimes(1);
 });
 
 it("restores the item and permits retry after delivery fails", async () => {

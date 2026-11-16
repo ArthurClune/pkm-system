@@ -416,6 +416,10 @@ Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
 - The service worker (`vite-plugin-pwa`) precaches what `globPatterns` lists,
   so a cold offline start boots and lazy renderers load offline. It
   runtime-caches `/assets/` and never caches `/api`.
+- Vite inlines an asset under 4 KB (the `build.assetsInlineLimit` default)
+  into its CSS as a data URI. `KaTeX_Size3-Regular.woff2` is one, so it ships
+  inside the KaTeX stylesheet, not as a file: a count of the precached core
+  KaTeX faces finds one fewer file than the glob names, and none is missing.
 
 ## Tech stack
 

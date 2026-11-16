@@ -454,6 +454,10 @@ every `pkm.*` logger reaches a handler.
 - A path with a literal `%` goes through `asgi_get_all` or `single_decode_get`,
   not `TestClient`, which decodes the path twice: a file named `%41` would be
   served as `A`. uvicorn and `httpx.ASGITransport` decode once.
+- `conftest.py`'s `SEED_PAGES` includes the daily page "July 7th, 2026". A
+  test that builds a daily title from `date.today()` plus an offset collides
+  with it on the one calendar day the offset lands there, so build such
+  titles from a fixed date.
 - `server/tooling/` holds the gate engines: `perfcheck`
   ([Performance gate](checks.md#performance-gate)), `proptest`
   ([Property gate](checks.md#property-gate)), `brandlint`, `regexlint` and

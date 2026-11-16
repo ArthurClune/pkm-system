@@ -455,7 +455,10 @@ write different macro text, so a filter that differs only in padding
 offers no Save. A live view nobody changed follows a new saved one, so a
 Save on another device does not leave this one offering Reset. After a
 cell edit the rows on screen are held (`frozen`) until the reader changes
-the view or resets it, so an edited row neither moves nor vanishes.
+the view or resets it, so an edited row neither moves nor vanishes. A
+refetch that no longer returns a held row keeps showing its last record,
+stale (`holdRecords`). Otherwise an edit that took a row out of the query
+would drop it, and commit any draft open in it, on the next resync.
 
 Save writes only the fields that differ from the data's defaults
 (`optionsFromView`). A block with no `view:` or `columns:` keeps following

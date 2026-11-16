@@ -81,9 +81,9 @@ Buttons and fields are styled by named class, and there is no bare
   `.left-nav`'s own `--color-bg-subtle`, so it takes the surface fill at rest.
 - **Tables.** `DataTable` (`web/src/tables/`) renders `.data-table` inside
   `.data-table-scroll`, with `.roam-table`'s cell look, so a plain table
-  does not change when its chunk loads. Body cells of both are opaque on
-  `--color-bg-surface`, so a hovered or focused row tints around a table,
-  not inside it. Both tables are at least
+  does not change when its chunk loads. Body cells of both, and `.query-card`,
+  are opaque on `--color-bg-surface`, so a hovered or focused row tints
+  around a table or card, not inside it. Both tables are at least
   `max-content` wide so a narrow screen scrolls them, so each body cell's
   content sits in a `.table-cell` that caps its width. Without the cap, one
   long line (a markdown link's URL) widens its column until the rest scroll

@@ -1044,4 +1044,9 @@ describe("row hover beside tables and panels", () => {
     expect(ruleFor(".roam-table td"))
       .toContain("background: var(--color-bg-surface);");
   });
+
+  test("query cards sit on the surface too", () => {
+    expect(ruleFor(".query-card"))
+      .toContain("background: var(--color-bg-surface);");
+  });
 });

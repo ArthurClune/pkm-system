@@ -1004,7 +1004,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .query-cards { display: grid; gap: 10px; margin: 4px 0;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
 .query-card { padding: 8px 10px; border: 1px solid var(--color-border);
-  border-radius: var(--radius-card); background: var(--color-bg-subtle); }
+  border-radius: var(--radius-card); background: var(--color-bg-surface); }
 .query-card.stale { opacity: 0.6; }
 .query-card-title { margin: 0 0 2px; font-size: 15px; }
 .query-card-row { margin-top: 4px; font-size: 13px; }

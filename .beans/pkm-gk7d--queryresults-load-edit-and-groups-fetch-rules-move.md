@@ -1,11 +1,11 @@
 ---
 # pkm-gk7d
 title: QueryResults' load, edit and groups-fetch rules move into one pure reducer
-status: in-progress
+status: completed
 type: task
 priority: low
 created_at: 2026-11-16T21:55:59Z
-updated_at: 2026-11-16T22:28:01Z
+updated_at: 2026-11-16T22:32:13Z
 ---
 
 An FCIS review of the query-table hold work found two gaps that one change closes.
@@ -21,7 +21,7 @@ Aim: one Functional Core reducer (in `web/src/tables/queryViewState.ts` or besid
 - [x] `queryRun.ts` drives the reducer, deleting its hand-written `load()`; add the groups-fetch decision to the property if it has transitions worth modelling
 - [x] Property rule changes shown to reach and to fail (docs/architecture/checks.md, Property gate)
 - [x] `pnpm verify`, `proptest/check.sh web`
-- [ ] `perf/check.sh frontend`
+- [x] `perf/check.sh frontend` (no changes against the baseline)
 
 
 ## Summary of Changes

@@ -51,7 +51,7 @@ const REACH: Reach = {
     "held a column the load's records no longer hold": 0.1,
     "held a row the load dropped": 0.154,
     "held the table through a load whose default is blocks": 0.109,
-    "held with a view the macro sets": 0.048,
+    "held with a view the macro sets, not the first edit's": 0.032,
     "held with columns the macro sets": 0.093,
     "keyed a held column by the first edit's stats": 0.116,
     "reset releases a hold": 0.061,

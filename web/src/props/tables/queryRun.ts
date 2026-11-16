@@ -211,7 +211,9 @@ function label(reached: Set<string>, step: QueryStep, prior: QueryModel,
     }
   }
   if (!now.columnsFollow) reached.add("held with columns the macro sets");
-  if (!now.viewFollows) reached.add("held with a view the macro sets");
+  if (!now.viewFollows && model.first?.view !== now.view) {
+    reached.add("held with a view the macro sets, not the first edit's");
+  }
   if (now.columns.some((c) => !model.keys.some((k) => k.label === c.label)
       && prior.first?.stats.some((k) => k.label === c.label))) {
     reached.add("keyed a held column by the first edit's stats");

@@ -106,6 +106,9 @@ export const queryStepArb: fc.Arbitrary<QueryStep> = fc.oneof(
   { weight: 1, arbitrary: fc.constant({ kind: "reset" as const }) },
   { weight: 1, arbitrary: fc.constant({ kind: "saved" as const }) },
   { weight: 1, arbitrary: optionsArb.map((options) => ({ kind: "macro" as const, options })) },
+  // A macro that moves the view off the table during a held edit.
+  { weight: 1, arbitrary: fc.constantFrom("cards", "blocks").map((view) =>
+      ({ kind: "macro" as const, options: { view } })) },
 );
 
 export interface QueryExample {

@@ -73,6 +73,21 @@ function mediaRulesFor(query: string, selector: string): string {
   return bodies.join("\n");
 }
 
+describe("section order", () => {
+  const sections = [...styles.matchAll(/^\/\* == (.+?) == \*\/$/gm)]
+    .map((match) => match[1]);
+
+  test("each section name appears once", () => {
+    expect(sections.length).toBeGreaterThan(1);
+    expect(new Set(sections).size).toBe(sections.length);
+  });
+
+  test("tokens come first and the shared Responsive section last", () => {
+    expect(sections[0]).toBe("Tokens and themes");
+    expect(sections.at(-1)).toBe("Responsive");
+  });
+});
+
 describe("outline line spacing", () => {
   test("uses 1.4 line-height for block rows and numbered bullets", () => {
     expect(ruleFor(".block-row")).toContain("line-height: 1.4;");

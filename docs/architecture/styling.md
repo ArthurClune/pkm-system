@@ -3,11 +3,20 @@
 All styling is plain CSS in a single file, `web/src/styles.css`, with no
 framework or CSS-in-JS. The app around it is in [frontend.md](frontend.md).
 
-`styles.css` is divided by `/* == Name == */` markers, with Tokens and themes
-first. Later rules win at equal specificity, so a responsive or variant
-override follows the rule it overrides: the shared `Responsive` section holds
-the common breakpoints, and a section with its own `@media` block keeps it
-right after the rules it overrides. The verify skill selects by class, so
+`styles.css` is divided by `/* == Name == */` markers. Sections run by area:
+tokens and base elements, layout and chrome, outline and editing, inline
+content and media, references and search, then pages and feature surfaces. A
+new rule goes in the section for the component it styles, and a new section
+goes in its area, not at the end of the file.
+
+Later rules win at equal specificity, and a media query adds none. **The shared
+`Responsive` section is the last in the file**, so its breakpoint overrides
+beat every base rule. A section with its own `@media` block keeps it right
+after the rules it overrides. Moving a rule earlier or later can change which
+rule wins, so a reorder checks each moved rule against equal-specificity rules
+that set the same property on the same element. `styles.test.ts` pins unique
+section names, Tokens and themes first and Responsive last. The verify skill
+selects by class, so
 before removing one, grep the "Known selectors" table in
 `.claude/skills/verify/SKILL.md` too.
 

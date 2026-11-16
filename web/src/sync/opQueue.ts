@@ -62,6 +62,8 @@ export type TicketId = string & { readonly __brand: "TicketId" };
 export interface WriteTicket {
   id: TicketId;
   scope: readonly string[];
+  /** Whether local storage took the write. "failed" does not mean dropped:
+   * unless the replica rejected the op, the queue retains and delivers it. */
   settled: Promise<WriteOutcome>;
   /** Resolves only when this ticket's server POST is acknowledged or reaches a
    * terminal failure. Persistence settlement alone is not server causality. */

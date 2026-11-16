@@ -33,7 +33,7 @@ def test_full_scale_shape():
     assert title_for_date(FROZEN_TODAY) in per_page  # GET /api/journal must never create a page
     for hub in HUBS:
         backlinks = sum(1 for op in cs if f"[[{hub}]]" in op["text"])
-        assert 150 <= backlinks <= 450, hub
+        assert 150 <= backlinks <= 550, hub
     assert sum(1 for op in cs if RARE_TERM in op["text"]) == 3
     assert sum(1 for op in cs if PHRASE in op["text"]) == 12
     assert sum(1 for op in cs if op["text"].startswith("{{[[TODO]]}}")) > 500
@@ -129,3 +129,23 @@ def test_edits_follow_their_creates():
                 created[op["uid"]] = b.now_ms
             else:
                 assert op["uid"] in created and created[op["uid"]] < b.now_ms
+
+
+def test_attribute_lines_cover_the_records_shapes():
+    fx = generate(1, 0.1)
+    cs = creates(fx)
+    by_uid = {op["uid"]: op for op in cs}
+    attr = [op for op in cs if "::" in op["text"].split("\n")[0]]
+    top = [op for op in attr if op["parent_uid"] is None]
+    nested = [op for op in attr if op["parent_uid"] is not None]
+    assert top and nested
+    assert any("\n" in op["text"] for op in attr)
+    parents = {op["parent_uid"] for op in cs if op["parent_uid"]}
+    assert any(op["uid"] in parents for op in attr), "a `::` block with children"
+    keys = Counter((op["page_title"], op["text"].split("::")[0]) for op in top)
+    assert max(keys.values()) > 1, "a key repeated within one record"
+    # the records scenario's matches: a page record (top-level `::` line
+    # linking the hub) and a line record (a linked line with `::` children)
+    hub = f"[[{HUBS[0]}]]"
+    assert any(hub in op["text"] for op in top)
+    assert any(hub in by_uid[op["parent_uid"]]["text"] for op in nested)

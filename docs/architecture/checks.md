@@ -144,7 +144,9 @@ Rules a change to the gate must keep:
   (the frontend drops its whole context group, since `check.ts` runs the group
   together; `--rebaseline` keeps their committed entries unchanged, because a
   branch measurement there would record a branch regression, and measures on
-  the branch only a scenario with no usable entry).
+  the branch only a scenario with no usable entry, `runs` times like any
+  recording). It first runs the whole harness once on the branch to learn
+  which scenarios exist, so a branch whose own harness fails stops there.
   A survivor with no merge-base run can only read `regression`, so a wrong
   guess misreads a stale baseline as a regression and never passes one. A
   timing in that position is judged against the branch baseline, without the
@@ -164,8 +166,9 @@ Rules a change to the gate must keep:
   write scenario's `trigger_statements` do not depend on the fixture's FTS
   segment phase (the first FTS write otherwise pays a crisis merge whose
   presence follows the fixture's size). Production's index sits at an
-  arbitrary phase, so the fixture's write counts are not its average cost. Metrics that stay noisy under these
-  controls are classed `band` or `timing`.
+  arbitrary phase, so the fixture's write counts are not its average cost.
+  Metrics that stay noisy under these controls are classed `band` or
+  `timing`.
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)
   decides comparability, so a schema or query change is measured rather than

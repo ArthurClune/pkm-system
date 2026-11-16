@@ -383,6 +383,7 @@ def _branch_baseline(repo: Path, side: str) -> dict | None:
     try:
         doc = json.loads(path.read_text())
         doc["scenarios"].keys()
+        doc["fixture_hash"], doc["env"]
     except (ValueError, KeyError, AttributeError, TypeError) as e:
         rel = path.relative_to(repo)
         raise PerfRunError(f"{rel} is not a usable baseline ({e}), a merge conflict "
@@ -420,11 +421,17 @@ def _rebaseline_docs(runner: BackendRunner | FrontendRunner, repo: Path, wt: Pat
     comparable = branch_baseline is not None and incomparable_reason(branch_baseline, head_doc) is None
     committed = branch_baseline["scenarios"] if comparable and branch_baseline else None
     plan = rebaseline_plan(head_doc["scenarios"], committed, base_baseline, _groups(repo, side))
+    # the head run is the first branch sample; bootstrap needs `runs` real ones
+    branch_samples = [head_doc]
+    if plan.from_branch:
+        branch_samples += [runner.run(repo, list(plan.from_branch), head_commit(repo))
+                           for _ in range(runs - 1)]
     docs = []
-    for _ in range(runs):
+    for i in range(runs):
         doc = (runner.run(wt, list(plan.at_base), commit) if plan.at_base
                else {**head_doc, "scenarios": {}})
-        doc["scenarios"].update({n: head_doc["scenarios"][n] for n in plan.from_branch})
+        doc["scenarios"].update({n: branch_samples[min(i, len(branch_samples) - 1)]["scenarios"][n]
+                                 for n in plan.from_branch})
         docs.append(doc)
     return docs, {n: committed[n] for n in plan.carried} if committed else {}, plan
 
@@ -468,10 +475,10 @@ def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,
 
 def do_check(repo: Path, side: str, allow_busy: bool = False) -> int:
     path = _baseline_path(repo, side)
-    if not path.exists():
+    baseline = _branch_baseline(repo, side)
+    if baseline is None:
         print(f"## {side}: no baseline — run `perf/check.sh {side} --bootstrap`")
         return 1
-    baseline = json.loads(path.read_text())
     runner = _runner(repo, side)
     start_load = _load1() if allow_busy else wait_until_quiet(side, repo)
     result = runner.run(repo, None, head_commit(repo))

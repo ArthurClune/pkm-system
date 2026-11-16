@@ -375,19 +375,50 @@ def test_rebaseline_keeps_the_committed_entry_of_a_scenario_the_base_cannot_run(
     assert written["q/new"]["n"]["value"] == 3
 
 
-def test_rebaseline_measures_on_the_branch_when_there_is_no_committed_entry(tmp_path, monkeypatch, capsys):
-    _rebaseline_setup(tmp_path, monkeypatch, _doc({"a/1": {"n": 1}}),
-                      [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}})], [_doc({"a/1": {"n": 2}})] * 2)
+def _band_doc(scenarios):
+    doc = _doc({})
+    doc["scenarios"] = {s: {k: {"class": "band", "value": v} for k, v in ms.items()}
+                        for s, ms in scenarios.items()}
+    return doc
+
+
+def test_rebaseline_samples_a_scenario_without_a_committed_entry_on_every_run(tmp_path, monkeypatch, capsys):
+    # one sample copied into every run would record a point band
+    runner = _rebaseline_setup(
+        tmp_path, monkeypatch, _doc({"a/1": {"n": 1}}),
+        [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}}), _doc({"q/new": {"n": 4}})],
+        [_doc({"a/1": {"n": 2}}), _doc({"a/1": {"n": 2}})])
     assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    assert runner.head_only == [None, ["q/new"]]
     assert _written(tmp_path)["q/new"]["n"]["value"] == 4
     assert "recorded from the branch" in capsys.readouterr().out
+
+
+def test_rebaseline_band_of_a_branch_scenario_spans_the_samples(tmp_path, monkeypatch):
+    _rebaseline_setup(
+        tmp_path, monkeypatch, _doc({"a/1": {"n": 1}}),
+        [_band_doc({"a/1": {"n": 1}, "q/new": {"m": 4}}), _band_doc({"q/new": {"m": 7}})],
+        [_doc({"a/1": {"n": 2}}), _doc({"a/1": {"n": 2}})])
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
+    m = _written(tmp_path)["q/new"]["m"]
+    assert (m["min"], m["max"]) == (4, 7)
+
+
+def test_rebaseline_reports_a_branch_scenario_whose_count_varies_as_unstable(tmp_path, monkeypatch):
+    _rebaseline_setup(
+        tmp_path, monkeypatch, _doc({"a/1": {"n": 1}}),
+        [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}}), _doc({"q/new": {"n": 5}})],
+        [_doc({"a/1": {"n": 2}}), _doc({"a/1": {"n": 2}})])
+    assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 1
+    assert "q/new" not in _written(tmp_path)
 
 
 def test_rebaseline_does_not_carry_entries_of_an_incomparable_baseline(tmp_path, monkeypatch):
     committed = _doc({"a/1": {"n": 1}, "q/new": {"n": 3}})
     committed["fixture_hash"] = "old"
     _rebaseline_setup(tmp_path, monkeypatch, committed,
-                      [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}})], [_doc({"a/1": {"n": 2}})] * 2)
+                      [_doc({"a/1": {"n": 1}, "q/new": {"n": 4}}), _doc({"a/1": {"n": 1}, "q/new": {"n": 4}})],
+                      [_doc({"a/1": {"n": 2}}), _doc({"a/1": {"n": 2}})])
     assert run.do_bootstrap(tmp_path, "backend", 2, at_merge_base=True) == 0
     assert _written(tmp_path)["q/new"]["n"]["value"] == 4
 
@@ -437,8 +468,9 @@ def test_frontend_rebaseline_keeps_a_whole_group_off_the_merge_base(tmp_path, mo
     _frontend_repo(tmp_path, committed)
     runner = _rebaseline_setup(
         tmp_path, monkeypatch, committed,
-        [_doc({"J/a": {"n": 1}, "S/old": {"n": 1}, "S/new": {"n": 1}, "H/x": {"n": 1}})],
-        [_doc({"H/x": {"n": 5}})] * 2, side="frontend")
+        [_doc({"J/a": {"n": 1}, "S/old": {"n": 1}, "S/new": {"n": 1}, "H/x": {"n": 1}}),
+         _doc({"S/new": {"n": 1}})],
+        [_doc({"H/x": {"n": 5}}), _doc({"H/x": {"n": 5}})], side="frontend")
     assert run.do_bootstrap(tmp_path, "frontend", 2, at_merge_base=True) == 0
     assert runner.mb_only == [["H/x"]] * 2
     written = _written(tmp_path, "frontend")
@@ -456,6 +488,23 @@ def test_a_context_groups_file_of_another_shape_fails_with_exit_2(tmp_path, monk
     assert run.main() == 2
     err = capsys.readouterr().err
     assert "perf: frontend failed" in err and "parse_context_groups" in err
+
+
+def test_a_conflicted_branch_baseline_fails_a_check_with_exit_2(tmp_path, monkeypatch, capsys):
+    (tmp_path / "perf").mkdir()
+    (tmp_path / "perf" / "baseline-backend.json").write_text("<<<<<<< HEAD\n{}\n")
+    monkeypatch.setattr("sys.argv", ["perf/check.sh", "backend"])
+    monkeypatch.setattr(run, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(run, "changed_paths", lambda repo: ["server/x.py"])
+    assert run.main() == 2
+    assert "git checkout main -- perf/baseline-backend.json" in capsys.readouterr().err
+
+
+def test_a_baseline_without_its_header_keys_is_refused_not_a_keyerror(tmp_path):
+    (tmp_path / "perf").mkdir()
+    (tmp_path / "perf" / "baseline-backend.json").write_text('{"scenarios": {}}')
+    with pytest.raises(run.PerfRunError):
+        run._branch_baseline(tmp_path, "backend")
 
 
 def test_a_conflicted_branch_baseline_fails_the_rebaseline_with_exit_2(tmp_path, monkeypatch, capsys):

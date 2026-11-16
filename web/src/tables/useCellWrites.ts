@@ -72,7 +72,10 @@ export function useCellWrites(patch: Patch) {
 
   // `shown` is the record as the sent ops leave it, shown from the enqueue
   // on, so a re-edit plans against the new text; `unsent` replaces it if
-  // the queue fails to persist them.
+  // the queue drops them. Only `delivered` failing means dropped: a
+  // `settled` failure the replica did not reject still retains and delivers
+  // the ops. A drop the server or replica refused also desyncs, and the
+  // resync refetch that follows replaces whatever this revert left.
   const send = useCallback((r: QueryRecordModel, ops: BlockOp[],
                             shown: Fix, unsent: Fix): boolean => {
     for (const op of ops) {
@@ -99,8 +102,8 @@ export function useCellWrites(patch: Patch) {
       }
     }
     patch(r.key, shown);
-    void ticket.settled.then((outcome) => {
-      if (outcome.status === "persisted") return;
+    void ticket.delivered.then((outcome) => {
+      if (outcome.status === "delivered") return;
       patch(r.key, unsent);
       show({ id: ++ids.current,
              message: `The write to ${r.page_title} failed: ${String(outcome.error)}` });

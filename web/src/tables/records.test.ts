@@ -16,7 +16,7 @@ function cell(id: string, text: string, extra: Partial<RecordCell> = {}):
   const at = text.indexOf("::") + 2;
   return {
     uid: u(id), key_raw: text.slice(0, at - 2), text,
-    value: text.slice(at).trimStart(), value_start: at, child_count: 0,
+    value: text.slice(at).trimStart(), value_start: at,
     ...extra,
   };
 }
@@ -55,6 +55,7 @@ describe("defaultColumns", () => {
       total: 4,
       keys: [stat("author", 4), stat("status", 2), stat("type", 1),
              stat("isbn", 1)],
+      groups: null,
     };
     expect(defaultColumns(p)).toEqual(["author", "status"]);
     const lead = { ...p, total: 2 };

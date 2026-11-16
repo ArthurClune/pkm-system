@@ -3,28 +3,32 @@
 blocks."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
+from typing import NamedTuple
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from pkm.changed import ChangedWindowError, classify, local_tz, parse_window
 from pkm.contracts.responses import (
-    ChangedPayload, GroupsPayload, QueryPayload, QueryRecordsPayload,
+    ChangedPayload, GroupsPayload, QueryGroup, QueryPayload, QueryRecordsPayload,
     SearchBlockHit, SearchPageHit, SearchPayload, TitlesPayload)
 from pkm.contracts.int64 import Int64
 from pkm.database import Db
 from pkm.server.ancestors_db import fetch_parents
 from pkm.server.auth import require_auth
-from pkm.server.db import get_db
+from pkm.server.db import get_db, read_txn
 from pkm.server.fts import escape_fts_query, like_escape
 from pkm.server.grouping import (ChangedRow, group_by_page, group_changed,
                                     group_query_results)
 from pkm.refs import CanonicalTitle
+from pkm.rows import Row
 from pkm.server.query import (
     plan_sql, QueryParseError)
 from pkm.server.query_exec import (
-    count_matches, execute_plan, page_queries, parse_canonical_query)
-from pkm.server.query_records_db import fetch_records
+    count_matches, execute_plan, iter_plan_rows, page_queries,
+    parse_canonical_query)
+from pkm.server.query_records_db import records_in_snapshot
 from pkm.server.sync_meta import read_title
 from pkm.todo import is_todo
 
@@ -74,24 +78,51 @@ def run_query(expr: str, expand: bool = False,
         title: count_matches(db, *plan_sql(operand, expand))
         for title, operand in page_queries(node).items()
     }
+    matches = _grouped_matches(db, sql, params)
+    return QueryPayload(groups=matches.groups, total=matches.total,
+                        ref_counts=ref_counts)
+
+
+class _GroupedMatches(NamedTuple):
+    groups: list[QueryGroup]
+    total: int
+
+
+def _grouped_matches(db: Db, sql: str,
+                     params: Sequence[str]) -> _GroupedMatches:
+    """A plan's results as `/api/query` groups them."""
     matches = execute_plan(db, sql, params)
-    ancestors = fetch_parents(db, [r["uid"] for r in matches.rows])
-    return QueryPayload(
-        groups=group_query_results(matches.rows, ancestors), total=matches.total,
-        ref_counts=ref_counts)
+    return _GroupedMatches(_groups(db, matches.rows), matches.total)
+
+
+def _groups(db: Db, plan_rows: Sequence[Row]) -> list[QueryGroup]:
+    ancestors = fetch_parents(db, [r["uid"] for r in plan_rows])
+    return group_query_results(plan_rows, ancestors)
 
 
 @router.get("/api/query/records", response_model=QueryRecordsPayload)
 def query_records(expr: str,
                   db: Db = Depends(get_db)) -> QueryRecordsPayload:
+    """`/api/query`'s results as table records. When no record has a `::`
+    cell the payload also carries `groups`, the grouped blocks
+    `/api/query` returns for the same expression."""
     try:
         node = parse_canonical_query(db, expr)
         sql, params = plan_sql(node)
     except QueryParseError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    found = fetch_records(db, sql, params)
+    # One snapshot, so the groups cannot show a result the records lack.
+    with read_txn(db):
+        rows = list(iter_plan_rows(db, sql, params))
+        found = records_in_snapshot(db, rows)
+        # The blocks view is the default exactly when no record has cells,
+        # and the web reads that from `groups` (queryDefaults in
+        # web/src/tables/queryView.ts); sending them means that view needs
+        # no second request.
+        groups = (None if any(rec.cells for rec in found.records)
+                  else _groups(db, rows))
     return QueryRecordsPayload(records=found.records, keys=found.keys,
-                               total=len(found.records))
+                               total=len(found.records), groups=groups)
 
 
 @router.get("/api/titles", response_model=TitlesPayload)

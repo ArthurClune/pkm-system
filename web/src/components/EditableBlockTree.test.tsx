@@ -1087,7 +1087,7 @@ test("a query's Save rewrites its block's own text, quote prefix and all", async
   const expr = "{and: [[Book]]}";
   const text = `> books {{query: ${expr}}}`;
   stubFetch([[`/api/query/records?${new URLSearchParams({ expr })}`, {
-    records: [], keys: [], total: 0 }]]);
+    records: [], keys: [], total: 0, groups: [] }]]);
   const h = handlers();
   render(
     <SyncContext.Provider value={makeSync()}>
@@ -1110,7 +1110,7 @@ test("a query's Save rewrites its block's own text, quote prefix and all", async
 test("a TODO or query inside a block ref cannot act on the host block", async () => {
   const expr = "{and: [[Book]]}";
   stubFetch([[`/api/query/records?${new URLSearchParams({ expr })}`, {
-    records: [], keys: [], total: 0 }]]);
+    records: [], keys: [], total: 0, groups: [] }]]);
   const h = handlers();
   render(
     <SyncContext.Provider value={makeSync()}>

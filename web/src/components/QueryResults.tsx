@@ -1,12 +1,18 @@
 // pattern: Imperative Shell
 // A {{query}} block's results, loaded lazily by QueryBlock: its records as a
 // table, cards or today's grouped blocks, with the filter, sort, view and
-// columns the macro's options save. The records come first, since they
-// decide the default view; the grouped blocks are fetched only once that
-// view is shown. Cell writes and Save need the host block's edit access and
-// a connection: queries are online-only.
-import { Fragment, useCallback, useContext, useEffect, useRef,
-         useState } from "react";
+// columns the macro's options save. The records decide the default view, and
+// when it is blocks they carry the grouped blocks too, so a query without
+// `::` cells takes one request. Otherwise the blocks come from /api/query,
+// started with the records when the macro saves the blocks view (until the
+// reader picks another) and on demand when the reader picks it. Cell writes
+// and Save need the host block's edit access and a connection: queries are
+// online-only. While a cell edit holds the rows in place, a refetch that
+// drops a held row's record keeps showing the record it last had
+// (holdRecords), so a row an edit took out of the query stays put,
+// writable, until the view changes.
+import { Fragment, useCallback, useContext, useEffect, useLayoutEffect,
+         useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { OfflineError } from "../api/client";
 import { apiGet } from "../api/typedClient";
@@ -22,8 +28,8 @@ import { pagePath } from "../paths";
 import { useResync, useSyncHealth } from "../sync/SyncProvider";
 import { QueryCards } from "../tables/QueryCards";
 import { QueryTable } from "../tables/QueryTable";
-import { planQuerySave, queryColumns, queryDefaults, shownRows,
-         type QueryColumn } from "../tables/queryView";
+import { holdRecords, planQuerySave, queryColumns, queryDefaults,
+         shownRows, type QueryColumn } from "../tables/queryView";
 import { island } from "../tables/island";
 import { TableToolbar } from "../tables/TableToolbar";
 import { useCellWrites } from "../tables/useCellWrites";
@@ -44,6 +50,17 @@ const VIEWS: { view: MacroView; label: string }[] = [
   { view: "cards", label: "Cards" },
 ];
 
+interface Records {
+  records: QueryRecordModel[];
+  /** Frozen rows' records the last refetch dropped, by key. */
+  held: ReadonlyMap<string, QueryRecordModel>;
+}
+
+const loadKey = (expr: string, generation: number): string =>
+  `${expr}\u0000${generation}`;
+
+const NO_RECORDS: Records = { records: [], held: new Map() };
+
 interface Loaded {
   keys: KeyStat[];
   total: number;
@@ -61,7 +78,7 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   const { status } = useSyncHealth();
   const canEdit = edit !== null && status === "connected";
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [records, setRecords] = useState<QueryRecordModel[]>([]);
+  const [{ records, held }, setRecords] = useState<Records>(NO_RECORDS);
   const [groups, setGroups] = useState<QueryGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [groupsError, setGroupsError] = useState<string | null>(null);
@@ -76,23 +93,47 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   // even when the offline gateway does not honor an AbortController.
   const recordsGuard = useStaleGuard();
   const groupsGuard = useStaleGuard();
+  // The load (`loadKey`) whose records last landed or failed: state, so
+  // the groups effect reruns when they settle either way.
+  const [recordsFor, setRecordsFor] = useState<string | null>(null);
+  // The load the groups state answers.
   const groupsFor = useRef<string | null>(null);
-
+  // The load a /api/query was last started for, kept after a failure so the
+  // rerun when the records settle does not retry it away.
+  const groupsTried = useRef<string | null>(null);
+  // Read when a load lands, which must not wait on or rerun for the view.
+  const frozenNow = useRef<readonly string[] | null>(null);
+  useLayoutEffect(() => { frozenNow.current = view?.frozen ?? null; }, [view]);
 
   useEffect(() => {
     const token = recordsGuard.begin();
+    const want = loadKey(expr, generation);
     void (async () => {
       try {
         const p = await apiGet("/api/query/records", { query: { expr } });
         if (recordsGuard.isStale(token)) return;
-        setRecords(p.records);
+        setRecordsFor(want);
+        if (p.groups !== null) {
+          // These are as new as the records: drop a /api/query still in
+          // flight for this load, which the groups effect will not repeat.
+          groupsGuard.begin();
+          groupsFor.current = want;
+          setGroups(p.groups);
+          setGroupsError(null);
+        }
+        const frozen = frozenNow.current;
+        setRecords((cur) => ({
+          records: p.records,
+          held: holdRecords(cur.records, cur.held, p.records, frozen) }));
         setLoaded({ keys: p.keys, total: p.total, defaults: queryDefaults(p) });
         setError(null);
       } catch (e: unknown) {
-        if (!recordsGuard.isStale(token)) setError(errorText(e));
+        if (recordsGuard.isStale(token)) return;
+        setRecordsFor(want);
+        setError(errorText(e));
       }
     })();
-  }, [expr, generation, recordsGuard]);
+  }, [expr, generation, recordsGuard, groupsGuard]);
 
   // A refetch or an edit of the macro's options brings a new saved view;
   // one the reader has not touched follows it.
@@ -103,11 +144,20 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
       : stepView(v, { kind: "loaded", saved }));
   }, [loaded, options]);
 
-  const showsBlocks = view?.live.view === "blocks";
+  const savedBlocks = options.view === "blocks";
+  const shownView = view?.live.view ?? null;
+  // The saved view counts until there is a shown one to follow.
+  const wantsBlocks = shownView === null ? savedBlocks : shownView === "blocks";
   useEffect(() => {
-    const want = `${expr}\u0000${generation}`;
-    if (!showsBlocks || groupsFor.current === want) return;
+    const want = loadKey(expr, generation);
+    // Leaving the blocks view and returning retries a failed fetch.
+    if (!wantsBlocks) groupsTried.current = null;
+    if (groupsFor.current === want || groupsTried.current === want) return;
+    // A saved blocks view fetches with the records; otherwise they decide,
+    // since they may carry the groups themselves.
+    if (!wantsBlocks || !(savedBlocks || recordsFor === want)) return;
     const token = groupsGuard.begin();
+    groupsTried.current = want;
     void (async () => {
       try {
         const p = await apiGet("/api/query", { query: { expr } });
@@ -119,11 +169,17 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
         if (!groupsGuard.isStale(token)) setGroupsError(errorText(e));
       }
     })();
-  }, [showsBlocks, expr, generation, groupsGuard]);
+  }, [wantsBlocks, savedBlocks, recordsFor, expr, generation, groupsGuard]);
 
   const patch = useCallback((key: string,
                              fn: (r: QueryRecordModel) => QueryRecordModel) => {
-    setRecords((rs) => rs.map((r) => (r.key === key ? fn(r) : r)));
+    setRecords((cur) => {
+      const was = cur.held.get(key);
+      return {
+        records: cur.records.map((r) => (r.key === key ? fn(r) : r)),
+        held: was === undefined ? cur.held : new Map(cur.held).set(key, fn(was)),
+      };
+    });
   }, []);
   const writes = useCellWrites(patch);
 
@@ -155,7 +211,8 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
 
   const live = view.live;
   const columns: QueryColumn[] = queryColumns(live.columns, loaded.keys);
-  const { rows, matching } = shownRows(records, columns, live, view.frozen);
+  const { rows, matching } = shownRows(records, columns, live, view.frozen,
+                                      held);
   const next = optionsFromView(live, loaded.defaults);
   const refusal = optionsRefusal(next)
     ?? (saveRefusal?.live === live ? saveRefusal.text : null);

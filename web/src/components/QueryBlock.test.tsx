@@ -804,7 +804,8 @@ describe("cell writes", () => {
     const sync = makeSync();
     const enqueue = sync.enqueue;
     sync.enqueue = (ops, scope) => ({ ...enqueue(ops, scope),
-                                      settled: new Promise(() => {}) });
+                                      settled: new Promise(() => {}),
+                                      delivered: new Promise(() => {}) });
     renderBlock(`{{query: ${BOOK}}}`, { sync });
     await screen.findByRole("table");
     await write("Book/Alpha", "Reading Status", "Unread");
@@ -850,18 +851,42 @@ describe("cell writes", () => {
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 
-  it("names a write that failed to persist, and leaves the cell as it was", async () => {
+  it("keeps a write the queue failed to persist but still delivers", async () => {
     stubBooks();
     const sync = makeSync();
     const enqueue = sync.enqueue;
     sync.enqueue = (ops, scope) => ({
       ...enqueue(ops, scope),
       settled: Promise.resolve({ status: "failed", error: new Error("disk full") }),
+      delivered: Promise.resolve({ status: "delivered" }),
     });
     renderBlock(`{{query: ${BOOK}}}`, { sync });
     await screen.findByRole("table");
     await write("Book/Alpha", "Reading Status", "Unread");
-    expect(screen.getByText(/write to Book\/Alpha failed: Error: disk full/))
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.queryByText(/failed/)).toBeNull();
+    expect(screen.getByText(/Reading Status:: Unread written to Book\/Alpha/))
+      .toBeInTheDocument();
+    expect(cellOf("Book/Alpha", "Reading Status")).toHaveTextContent("Unread");
+  });
+
+  it("names a write the queue dropped, and leaves the cell as it was", async () => {
+    stubBooks();
+    const sync = makeSync();
+    const enqueue = sync.enqueue;
+    let drop!: (error: Error) => void;
+    sync.enqueue = (ops, scope) => ({
+      ...enqueue(ops, scope),
+      delivered: new Promise((done) => {
+        drop = (error) => done({ status: "failed", error });
+      }),
+    });
+    renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    expect(cellOf("Book/Alpha", "Reading Status")).toHaveTextContent("Unread");
+    await act(async () => { drop(new Error("400 rejected")); });
+    expect(screen.getByText(/write to Book\/Alpha failed: Error: 400 rejected/))
       .toBeInTheDocument();
     expect(cellOf("Book/Alpha", "Reading Status")).toHaveTextContent(/^Read$/);
   });

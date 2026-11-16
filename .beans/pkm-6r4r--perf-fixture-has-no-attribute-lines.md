@@ -3,8 +3,9 @@
 title: 'Perf fixture has no :: attribute lines'
 status: todo
 type: task
+priority: low
 created_at: 2026-11-15T21:05:01Z
-updated_at: 2026-11-15T21:05:01Z
+updated_at: 2026-11-16T10:07:33Z
 parent: pkm-l79g
 ---
 

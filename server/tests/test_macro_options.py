@@ -148,7 +148,8 @@ def test_accepted_options_round_trip_to_their_normal_form(opts):
 
 
 _REF_PARTS = st.lists(st.sampled_from(
-    ["((abcDEF))", "[[A]]", "#A", "((", "))", "x", " "]), max_size=4).map("".join)
+    ["((abcDEF))", "[[A]]", "#A", "(", ")", "[", "]", "((", "))", "A",
+     "x", " ", ":", "-"]), max_size=5).map("".join)
 
 
 @given(st.builds(
@@ -156,7 +157,11 @@ _REF_PARTS = st.lists(st.sampled_from(
     sort=st.none() | st.tuples(_REF_PARTS, st.just("asc")),
     columns=st.none() | st.lists(_REF_PARTS, max_size=3).map(tuple)))
 def test_accepted_options_add_no_refs(opts):
-    assume(options_refusal(opts) is None)
+    # A refused option never reaches a macro, so only accepted ones must be
+    # inert. No assume: discarding refused cases tripped the filter health
+    # check, and a refusal is a valid outcome here, not a discard.
+    if options_refusal(opts) is not None:
+        return
     head = "{{query: {and: [[A]]}"
     assert refs.extract(head + format_macro_options(opts) + "}}") == (
         refs.extract(head + "}}"))

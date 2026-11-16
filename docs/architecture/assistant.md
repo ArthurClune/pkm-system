@@ -277,6 +277,11 @@ A variable the CLI needs must be added to `HOST_ENV`. The SDK-drift test
 catches one the SDK starts setting, but nothing catches a CLI need, so check
 with a live start.
 
+GLM answers that it is Claude, so its own reply proves nothing about routing.
+Check `ANTHROPIC_BASE_URL` in the harness subprocess's environment, or the
+`model=` on the server's `assistant harness started` log line. Smoke any
+harness change against a live conversation.
+
 Without a z.ai key ([configuration](backend.md#configuration-and-entrypoints)),
 `available_models()` drops `glm`, `create()` rejects it with a 400, and the
 engine refuses it before writing the credential file.

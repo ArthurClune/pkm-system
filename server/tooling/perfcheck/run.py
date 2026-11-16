@@ -29,10 +29,12 @@ from perfcheck.build import UNUSED_FOR_S, CacheLockTimeout, cache_dir, cache_loc
 from perfcheck.compare import (bootstrap, compare, confirm, incomparable_reason,
                                render_table)
 from perfcheck.fixture import FROZEN_NOW
-from perfcheck.run_core import (RebaselinePlan, base_servable, busy_reason, busy_report, exit_code,
-                                frontend_letters, incomparable_advice, is_test_runner, missing_import_advice,
+from perfcheck.run_core import (RebaselinePlan, assemble_rebaseline_docs, base_servable,
+                                busy_reason, busy_report, exit_code, frontend_letters,
+                                incomparable_advice, is_test_runner, missing_import_advice,
                                 missing_pkm_import, next_steps, parse_context_groups, parse_ps,
-                                rebaseline_plan, scenarios_of, sides_for, stale_entries, top_processes)
+                                rebaseline_plan, scenarios_of, sides_for, stale_entries,
+                                top_processes)
 from repo_git import GitError, changed_paths, git, repo_root
 
 FRONTEND_PORT = 8977
@@ -427,14 +429,11 @@ def _rebaseline_docs(runner: BackendRunner | FrontendRunner, repo: Path, wt: Pat
     if plan.from_branch:
         branch_samples += [runner.run(repo, list(plan.from_branch), head_commit(repo))
                            for _ in range(runs - 1)]
-    docs = []
-    for i in range(runs):
-        doc = (runner.run(wt, list(plan.at_base), commit) if plan.at_base
-               else {**head_doc, "scenarios": {}})
-        doc["scenarios"].update({n: branch_samples[min(i, len(branch_samples) - 1)]["scenarios"][n]
-                                 for n in plan.from_branch})
-        docs.append(doc)
-    return docs, {n: committed[n] for n in plan.carried} if committed else {}, plan
+    base_docs = ([runner.run(wt, list(plan.at_base), commit) for _ in range(runs)]
+                 if plan.at_base else [])
+    docs, carried = assemble_rebaseline_docs(runs, base_docs, head_doc, branch_samples, plan,
+                                             committed)
+    return docs, carried, plan
 
 
 def do_bootstrap(repo: Path, side: str, runs: int, at_merge_base: bool,

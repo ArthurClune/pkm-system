@@ -5,7 +5,7 @@ to prune."""
 from __future__ import annotations
 
 import re
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from perfcheck.compare import TIMING_FACTOR, TIMING_FLOOR_MS, Comparison, Outcome
@@ -255,3 +255,22 @@ def rebaseline_plan(head_names: Iterable[str], committed: Mapping | None,
     carried = [n for n in rest if committed is not None and n in committed]
     return RebaselinePlan(tuple(at_base), tuple(carried),
                           tuple(n for n in rest if n not in carried))
+
+
+def assemble_rebaseline_docs(runs: int, base_docs: Sequence[Mapping], head_doc: Mapping,
+                             branch_samples: Sequence[Mapping], plan: RebaselinePlan,
+                             committed: Mapping | None) -> tuple[list[dict], dict[str, dict]]:
+    """The `runs` documents to bootstrap a rebaseline from, and the committed
+    entries to carry over unchanged. Each document is the merge-base run
+    (`base_docs`, empty when nothing runs at the base: then head's metadata
+    with no scenarios) plus the plan's `from_branch` scenarios from the
+    matching branch sample, the last one standing in when there are fewer
+    samples than runs. Inputs are never mutated."""
+    docs = []
+    for i in range(runs):
+        base = base_docs[i] if plan.at_base else head_doc
+        sample = branch_samples[min(i, len(branch_samples) - 1)]["scenarios"]
+        scenarios = dict(base["scenarios"]) if plan.at_base else {}
+        scenarios.update({n: sample[n] for n in plan.from_branch})
+        docs.append({**base, "scenarios": scenarios})
+    return docs, {n: committed[n] for n in plan.carried} if committed else {}

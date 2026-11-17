@@ -33,9 +33,9 @@ afterEach(() => {
   mockBmRender.mockReset();
   mockRender.mockReset();
   document.documentElement.removeAttribute("data-theme");
-  // mockInitialize is deliberately NOT reset: loadMermaid() caches the
-  // module-level promise, so initialize fires exactly once per test file --
-  // its first recorded call is the only record any test can assert on.
+  // loadMermaid() caches a module-level promise, so initialize fires once
+  // per file, and vitest's clearMocks wipes the record before the next test:
+  // only the first test that falls back to stock mermaid can assert on it.
 });
 
 // Each test below that renders successfully uses a distinct `code` string:
@@ -59,7 +59,7 @@ it("renders via beautiful-mermaid with token-derived options, stock mermaid unto
   expect(mockRender).not.toHaveBeenCalled();
 });
 
-it("initializes stock mermaid with the base theme only on fallback", async () => {
+it("initializes stock mermaid on fallback: base theme, secured keys, stricter label sanitizer", async () => {
   mockBmRender.mockRejectedValue(new Error("unsupported diagram"));
   mockRender.mockResolvedValue({ svg: "<svg></svg>" });
   render(<MermaidDiagram code={"gantt\ntitle x"} />);
@@ -69,6 +69,9 @@ it("initializes stock mermaid with the base theme only on fallback", async () =>
   expect(config.securityLevel).toBe("strict");
   expect(config.themeVariables.fontFamily).toContain("-apple-system");
   expect(config.themeVariables.darkMode).toBe(false);
+  const secured = config as unknown as MermaidConfig;
+  expect(secured.secure).toEqual(STOCK_MERMAID_SECURE);
+  expect(secured.dompurifyConfig).toEqual(STOCK_MERMAID_DOMPURIFY);
 });
 
 it("falls back to stock mermaid rendering when beautiful-mermaid rejects", async () => {
@@ -211,16 +214,6 @@ it("never caches an errored render, so a remount retries both renderers", async 
   const second = render(<MermaidDiagram code={code} />);
   await waitFor(() => expect(second.container.querySelector(".mermaid-diagram-error-note")).not.toBeNull());
   expect(mockBmRender).toHaveBeenCalledTimes(2); // retried, not served a cached error
-});
-
-it("initializes stock mermaid with the secured keys and the stricter label sanitizer", async () => {
-  mockBmRender.mockRejectedValue(new Error("unsupported diagram"));
-  mockRender.mockResolvedValue({ svg: "<svg></svg>" });
-  render(<MermaidDiagram code={"gantt\ntitle secured-config"} />);
-  await waitFor(() => expect(mockInitialize).toHaveBeenCalled());
-  const [config] = mockInitialize.mock.calls[0] as unknown as [MermaidConfig];
-  expect(config.secure).toEqual(STOCK_MERMAID_SECURE);
-  expect(config.dompurifyConfig).toEqual(STOCK_MERMAID_DOMPURIFY);
 });
 
 it("strips beautiful-mermaid's font @import before the SVG is cached or shown", async () => {

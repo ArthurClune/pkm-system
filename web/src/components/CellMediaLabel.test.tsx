@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi, type Mock } from "vitest";
 
 // The real PdfViewer drags react-pdf/pdfjs into jsdom; the overlay's own
 // focus and Escape handling comes from useModal, which the stand-in keeps.
@@ -27,7 +27,7 @@ vi.mock("./PdfViewer", async () => {
   };
 });
 
-import { CellMediaContext, SidebarContext } from "../contexts";
+import { CellMediaContext, SidebarContext, type SidebarApi } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { pagePath } from "../paths";
 import { rawTitleOf, uidOf } from "../test-helpers";
@@ -46,9 +46,9 @@ function Probe() {
 const QUERY_CELL = { table: "query", page: PAGE, uid: UID } as const;
 
 function renderCell(text: string, opts: {
-  cell?: boolean; openInSidebar?: ReturnType<typeof vi.fn>;
+  cell?: boolean; openInSidebar?: Mock<SidebarApi["openInSidebar"]>;
 } = {}) {
-  const { cell = true, openInSidebar = vi.fn() } = opts;
+  const { cell = true, openInSidebar = vi.fn<SidebarApi["openInSidebar"]>() } = opts;
   const body: ReactNode = <InlineSegments segments={tokenizeBlock(text)} />;
   return render(
     <MemoryRouter initialEntries={["/start"]}>
@@ -130,7 +130,7 @@ it("image_that_fails_closes_and_reads_unavailable", async () => {
 });
 
 it("line_label_navigates_and_shift_opens_the_sidebar", async () => {
-  const openInSidebar = vi.fn();
+  const openInSidebar = vi.fn<SidebarApi["openInSidebar"]>();
   renderCell(MERMAID, { openInSidebar });
   const label = screen.getByRole("button", { name: "↗ Mermaid diagram" });
   fireEvent.click(label, { shiftKey: true });

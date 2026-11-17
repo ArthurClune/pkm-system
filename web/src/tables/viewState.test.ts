@@ -117,6 +117,24 @@ describe("rows held after an edit", () => {
   });
 });
 
+describe("release", () => {
+  it("release lets held rows go and keeps the live view", () => {
+    const s = run(
+      initialView(SAVED), { kind: "filter", text: "kafka" }, edited,
+    );
+    expect(s.frozen).toEqual(["a", "b"]);
+    const r = stepView(s, { kind: "release" });
+    expect(r.frozen).toBeNull();
+    expect(r.live).toEqual(s.live);
+    expect(r.saved).toEqual(s.saved);
+  });
+
+  it("release with no rows held changes nothing", () => {
+    const s = run(initialView(SAVED), { kind: "filter", text: "kafka" });
+    expect(stepView(s, { kind: "release" })).toEqual(s);
+  });
+});
+
 describe("loaded, a refetch of the saved view", () => {
   const remote: ViewFields = { ...SAVED, filter: "kafka", view: "cards" };
 

@@ -96,7 +96,8 @@ Buttons and fields are styled by named class, and there is no bare
   `.ac-popup` with the frame removed. `.table-toolbar` holds the filter, an
   `.input-control`. A header with a column menu wraps the sort button and
   `.data-table-menu` in `.data-table-head`. A query block adds `.query-views`
-  (the view switch, `aria-pressed` on the shown view), `.query-cards` and
+  (the view switch, `aria-pressed` on the shown view), `.query-actions`
+  (the header's view switch and Refresh button), `.query-cards` and
   `.query-cell-badge`. `.cell-media-label` is media in a cell: a borderless
   button in `--color-link` that reads as a link, or a muted `span` when it
   has nowhere to go. A jump to a plain-table cell flashes its `<td>` with

@@ -164,6 +164,89 @@ describe("a records load landing", () => {
   });
 });
 
+describe("a refresh", () => {
+  /** Rows a and b shown, then frozen by an edit; `pre` runs before it. */
+  const frozen = (...pre: QueryBlockEvent[]) => {
+    let s = run(start(), landed("L0", table("a", "b")), ...pre);
+    const now = shown(s);
+    if (now === null || s.loaded === null) throw new Error("not loaded");
+    s = run(s, { kind: "view", event: editedEvent(now, s.loaded.keys) });
+    expect(s.qv?.view.frozen).not.toBeNull();
+    return s;
+  };
+  const refresh = (load: string): QueryBlockEvent => ({ kind: "refresh", load });
+
+  it("releases the held rows when a newer load's records land", () => {
+    const s = run(frozen(), refresh("L0"), landed("L1", table("b")));
+    expect(s.qv?.view.frozen).toBeNull();
+    expect(s.qv?.held).toBeNull();
+    expect(shown(s)?.rows.map((r) => [r.record.key, r.stale]))
+      .toEqual([["b", false]]);
+    expect(s.refreshFrom).toBeNull();
+  });
+
+  it("holds through a landing of the load it was clicked on", () => {
+    const s = run(frozen(), refresh("L0"), landed("L0", table("b")));
+    expect(s.qv?.view.frozen).toEqual(["a", "b"]);
+    expect(s.refreshFrom).toBe("L0");
+    expect(shown(s)?.rows.map((r) => r.record.key)).toContain("a");
+  });
+
+  it("holds through a failure, and the next landing releases", () => {
+    let s = run(frozen(), refresh("L0"),
+                { kind: "recordsFailed", load: "L1", error: "x" });
+    expect(s.qv?.view.frozen).toEqual(["a", "b"]);
+    expect(s.refreshFrom).toBe("L0");
+    s = run(s, landed("L2", table("b")));
+    expect(s.qv?.view.frozen).toBeNull();
+    expect(s.refreshFrom).toBeNull();
+  });
+
+  it("a second click keeps the first click's load", () => {
+    const s = run(frozen(), refresh("L0"), refresh("L1"));
+    expect(s.refreshFrom).toBe("L0");
+    expect(run(s, landed("L1", table("b"))).qv?.view.frozen).toBeNull();
+  });
+
+  it("keeps the live view's unsaved filter and sort", () => {
+    const filter: QueryBlockEvent = {
+      kind: "view", event: { kind: "filter", text: "a" } };
+    const sort: QueryBlockEvent = {
+      kind: "view", event: { kind: "sortClick", col: "author" } };
+    const s = run(frozen(filter, sort), refresh("L0"),
+                  landed("L1", table("b")));
+    expect(s.qv?.view.live.filter).toBe("a");
+    expect(s.qv?.view.live.sort).toEqual({ col: "author", dir: "asc" });
+    expect(s.qv?.view.frozen).toBeNull();
+  });
+
+  const edit = (s: QueryBlockState): QueryBlockEvent => {
+    const now = shown(s);
+    if (now === null || s.loaded === null) throw new Error("not loaded");
+    return { kind: "view", event: editedEvent(now, s.loaded.keys) };
+  };
+
+  it("an edit that freezes rows after the click cancels the release", () => {
+    let s = run(start(), landed("L0", table("a", "b")), refresh("L0"));
+    s = run(s, edit(s));
+    expect(s.refreshFrom).toBeNull();
+    s = run(s, landed("L1", table("b")));
+    expect(s.qv?.view.frozen).toEqual(["a", "b"]);
+  });
+
+  it("an edit while rows are already held keeps the refresh pending", () => {
+    let s = run(frozen(), refresh("L0"));
+    s = run(s, edit(s));
+    expect(s.refreshFrom).toBe("L0");
+    expect(run(s, landed("L1", table("b"))).qv?.view.frozen).toBeNull();
+  });
+
+  it("a landing with no refresh pending still holds", () => {
+    const s = run(frozen(), landed("L1", table("b")));
+    expect(s.qv?.view.frozen).toEqual(["a", "b"]);
+  });
+});
+
 describe("the macro's options", () => {
   it("step a clean view to what they save", () => {
     const s = run(start(), landed("L0", table("a")),

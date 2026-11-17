@@ -50,6 +50,48 @@ describe("the query view property's runner", () => {
       .toContainEqual(expect.stringMatching(/^hold-rows: .* \(step 1\)$/));
   });
 
+  /** Edits, clicks Refresh, and its records fail, so the rows stay held
+   * until the next records land; then clicks Refresh with no rows held
+   * and edits before its records land, which cancels it. */
+  const refreshes: QueryExample = {
+    options: {},
+    first: payloadOf([recordOf("r1", [["Author", "x"]]),
+                      recordOf("r2", [["Author", "y"]])]),
+    steps: [
+      { kind: "edit" },
+      { kind: "refresh" },
+      { kind: "answer", payload: null },
+      { kind: "load", payload: payloadOf([recordOf("r2", [["Author", "y"]])]) },
+      { kind: "refresh" },
+      { kind: "edit" },
+      { kind: "answer", payload: payloadOf([recordOf("r1", [["Author", "x"]])]) },
+    ],
+  };
+
+  it("releases on a refresh's records, and holds through its failure", () => {
+    const run = runQueryExample(refreshes);
+    expect(run.problems).toEqual([]);
+    expect([...run.reached]).toEqual(expect.arrayContaining([
+      "held through a refresh's failed answer",
+      "a refreshed load releases a hold",
+      "an edit after a refresh cancels it",
+    ]));
+  });
+
+  it("sees an edit after the click fail to cancel the refresh", () => {
+    const uncancelled = {
+      ...QUERY_BLOCK,
+      step: (s: Parameters<typeof QUERY_BLOCK.step>[0],
+             e: Parameters<typeof QUERY_BLOCK.step>[1]) => {
+        const next = QUERY_BLOCK.step(s, e);
+        return e.kind === "view" && e.event.kind === "edited"
+          ? { ...next, refreshFrom: s.refreshFrom } : next;
+      },
+    };
+    expect(runQueryExample(refreshes, uncancelled).problems)
+      .toContainEqual(expect.stringMatching(/^frozen: .* \(step 6\)$/));
+  });
+
   /** A saved blocks view starts /api/query with the records, which carry
    * the groups; the /api/query answer then lands, and the reader leaves
    * the view and returns. */

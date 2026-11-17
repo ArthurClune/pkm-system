@@ -33,6 +33,8 @@ export type ViewEvent =
   /** A cell was written; `visibleIds` are the rows on screen, in order. */
   | { kind: "edited"; visibleIds: string[] }
   | { kind: "reset" }
+  /** Refresh's records landed: held rows go, the live view stays. */
+  | { kind: "release" }
   /** "Save this view" wrote the live view into the macro. */
   | { kind: "saved" }
   /** A refetch brought the macro's options, perhaps edited elsewhere. */
@@ -83,6 +85,8 @@ export function stepView(s: ViewState, e: ViewEvent): ViewState {
       return changeLive(s, { columns: e.columns });
     case "reset":
       return { ...s, live: s.saved, frozen: null };
+    case "release":
+      return { ...s, frozen: null };
     case "edited":
       return s.frozen !== null ? s : { ...s, frozen: e.visibleIds };
     case "saved":

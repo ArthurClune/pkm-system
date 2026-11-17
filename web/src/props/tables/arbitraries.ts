@@ -48,6 +48,7 @@ const eventArb = (kind: ViewStep["kind"]): fc.Arbitrary<ViewStep> => {
     case "loaded":
       return fc.record({ kind: fc.constant(kind), saved: viewFieldsArb });
     case "reset":
+    case "release":
     case "saved":
     case "refetch":
     case "remount":
@@ -57,7 +58,7 @@ const eventArb = (kind: ViewStep["kind"]): fc.Arbitrary<ViewStep> => {
 
 const WEIGHTS: Record<ViewStep["kind"], number> = {
   filter: 4, sortClick: 4, view: 2, columns: 2, edited: 4,
-  reset: 2, saved: 2, loaded: 2, refetch: 2, remount: 1,
+  reset: 2, release: 1, saved: 2, loaded: 2, refetch: 2, remount: 1,
 };
 
 export const viewStepArb: fc.Arbitrary<ViewStep> = fc.oneof(

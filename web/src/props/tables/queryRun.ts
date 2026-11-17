@@ -7,7 +7,9 @@
 // the saved view the macro's options and the new defaults give; Save
 // writes the options and they come back as the macro's; an edit steps the
 // view with what is on screen (editedEvent), and is skipped where no cell
-// can be written; after each step the groups effect starts any fetch due.
+// can be written; a Refresh is a resync that first tells the reducer the
+// load current at the click; after each step the groups effect starts any
+// fetch due.
 // Stops at the first step with a problem and returns every problem found
 // there, each led by the invariant it breaks:
 // - frozen: rows are held exactly when the model says (stepView's rule,
@@ -39,7 +41,8 @@ import {
   answerGroups, checkStall, loadOf, mountNet, startDueFetches, type Net,
 } from "./queryFetch";
 import {
-  edited, expected, loadedStep, readerStep, type QueryModel,
+  edited, expected, landed, loadedStep, readerStep, refreshed,
+  type QueryModel,
 } from "./queryModel";
 
 export interface QueryRunResult {
@@ -81,7 +84,7 @@ export function runQueryExample(example: QueryExample,
     block, state: initialQueryBlock(example.options),
     model: { view: { saved, live: saved }, options: example.options,
              keys: example.first.keys, records: example.first.records,
-             first: null },
+             first: null, refreshPending: false },
     net: mountNet(), problems: [], reached: new Set(),
   };
   effects(r, example.options.view === "blocks");
@@ -144,8 +147,8 @@ function landRecords(r: Run, payload: QueryRecordsPayload, step = true): void {
                 payload: { ...payload, groups } });
   if (!step) return;
   const saved = viewFromOptions(r.model.options, queryDefaults(payload));
-  r.model = loadedStep(r.model, saved,
-                       { keys: payload.keys, records: payload.records });
+  r.model = landed(r.model, saved,
+                   { keys: payload.keys, records: payload.records });
 }
 
 function resync(r: Run): void {
@@ -172,6 +175,11 @@ function apply(r: Run, step: QueryStep): void {
     case "resync":
       resync(r);
       return;
+    case "refresh":
+      dispatch(r, { kind: "refresh", load: loadOf(r.net.gen) });
+      resync(r);
+      r.model = refreshed(r.model);
+      return;
     case "answer":
       if (r.net.recordsOut === null) return;
       if (step.payload !== null) {
@@ -182,6 +190,9 @@ function apply(r: Run, step: QueryStep): void {
       r.net.settled.add(r.net.gen);
       dispatch(r, { kind: "recordsFailed", load: loadOf(r.net.gen),
                     error: "records failed" });
+      if (r.model.refreshPending && r.model.first !== null) {
+        r.reached.add("held through a refresh's failed answer");
+      }
       return;
     case "groups":
       r.state = answerGroups(r.block, r.state, r.net, step.ok, r.problems,
@@ -260,9 +271,15 @@ function label(reached: Set<string>, step: QueryStep, prior: QueryModel,
                model: QueryModel): void {
   const was = expected(prior);
   const now = expected(model);
+  if (step.kind === "edit" && prior.refreshPending && !model.refreshPending) {
+    reached.add("an edit after a refresh cancels it");
+  }
   if (was.rows !== null) {
     if (step.kind === "edit") reached.add("a second edit keeps the snapshot");
-    if (now.rows === null) reached.add(`${step.kind} releases a hold`);
+    if (now.rows === null) {
+      reached.add(prior.refreshPending && !model.refreshPending
+        ? "a refreshed load releases a hold" : `${step.kind} releases a hold`);
+    }
     if (step.kind === "saved" && now.rows !== null) reached.add("saved while held");
   }
   if (now.rows === null) return;

@@ -8,7 +8,11 @@
 //   one;
 // - a column's key comes from the current key stats, else, while rows are
 //   held, from the first edit's, else it is the label;
-// - held rows are the first edit's, in order; one the records lack is stale.
+// - held rows are the first edit's, in order; one the records lack is stale;
+// - a Refresh releases the held rows when the next records land, keeps them
+//   through a failed answer, and is cancelled by an edit that holds rows.
+//   An answer requested before the click never lands (the stale guard), so
+//   the next records to land are always ones requested since it.
 // The saved and live views come from the table view model (model.ts).
 import type { KeyStat, QueryRecordModel } from "../../api/payloads";
 import type { MacroOptions, MacroView } from "../../grammar/macroOptions";
@@ -30,6 +34,8 @@ export interface QueryModel {
   readonly keys: readonly KeyStat[];
   readonly records: readonly QueryRecordModel[];
   readonly first: Snapshot | null;
+  /** A Refresh was clicked and no records have landed since. */
+  readonly refreshPending: boolean;
 }
 
 export interface ExpectedColumn { readonly label: string; readonly key: string }
@@ -68,14 +74,18 @@ export function expected(m: QueryModel): Expected {
 }
 
 /** The snapshot an edit takes when no rows are held: what was shown, with
- * the rows on screen. A later edit keeps the first one's. */
+ * the rows on screen; it cancels a pending Refresh. A later edit keeps the
+ * first one's. */
 export function edited(m: QueryModel, rows: readonly string[]): QueryModel {
   if (m.first !== null) return m;
   const shown = expected(m);
-  return { ...m, first: {
+  return { ...m, refreshPending: false, first: {
     view: shown.view, labels: shown.columns.map((c) => c.label),
     stats: m.keys, rows } };
 }
+
+export const refreshed = (m: QueryModel): QueryModel =>
+  ({ ...m, refreshPending: true });
 
 /** A reader's change, Reset or Save; the ones in RELEASES let the held
  * rows go. */
@@ -90,4 +100,13 @@ export function loadedStep(m: QueryModel, saved: ViewFields,
                            data: Partial<Pick<QueryModel, "options" | "keys" | "records">>,
 ): QueryModel {
   return { ...m, ...data, view: modelStep(m.view, { kind: "loaded", saved }) };
+}
+
+/** Records landing: a refetch that also lets a pending Refresh release the
+ * held rows. */
+export function landed(m: QueryModel, saved: ViewFields,
+                       data: Pick<QueryModel, "keys" | "records">): QueryModel {
+  const next = loadedStep(m, saved, data);
+  return m.refreshPending
+    ? { ...next, first: null, refreshPending: false } : next;
 }

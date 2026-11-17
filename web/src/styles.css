@@ -999,6 +999,7 @@ button.external-media-placeholder:focus-visible { outline: 2px solid var(--color
 .query-header { display: flex; flex-wrap: wrap; justify-content: space-between;
   align-items: center; gap: 8px; font-size: 12px;
   color: var(--color-text-muted); margin-bottom: 4px; }
+.query-actions { display: inline-flex; gap: 8px; align-items: center; }
 /* the view switch; the shown view takes the selected look */
 .query-views { display: inline-flex; gap: 4px; }
 .query-views [aria-pressed="true"] { background: var(--color-selected-bg);

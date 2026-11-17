@@ -103,3 +103,60 @@ test("a query table writes a cell to its page, and Save keeps the filter",
     .toHaveValue("author:x");
   await expect(page.getByText("1 of 2 results")).toBeVisible();
 });
+
+test("Refresh lets a row an edit took out of the query go",
+     async ({ page, ownPage }) => {
+  const stamp = Date.now();
+  const tag = `e2e query refresh ${stamp}`;
+  const alpha = rawTitleOf(`Book/e2e RAlpha ${stamp}`);
+  const beta = rawTitleOf(`Book/e2e RBeta ${stamp}`);
+  for (const title of [alpha, beta]) {
+    const made = await page.request.post("/api/pages", { data: { title } });
+    expect(made.ok()).toBeTruthy();
+    seeded.push(title);
+  }
+  seeded.push(rawTitleOf(tag));
+  const queryUid = `e2eqr${stamp}q`;
+  queryBlocks.push(queryUid);
+  const lines = (title: RawTitle, author: string, n: number) =>
+    [`Type:: [[${tag}]]`, `Author:: ${author}`, "Reading Status:: Unread"]
+      .map((text, i) => ({
+        op: "create", uid: `e2eqr${stamp}${n}${i}`, page_title: title,
+        parent_uid: null, order_idx: i, text,
+      }));
+  const ops = await page.request.post("/api/ops", { data: {
+    client_id: "e2e-query-table",
+    batch_id: `e2e-query-refresh-${stamp}`,
+    ops: [
+      ...lines(alpha, "Xavier", 1), ...lines(beta, "Yolanda", 2),
+      { op: "create", uid: queryUid, page_title: ownPage.title,
+        parent_uid: null, order_idx: 0,
+        text: `{{query: {and: [[${tag}]]} | filter: -status:read}}` },
+    ],
+  } });
+  expect(ops.ok()).toBeTruthy();
+  await page.reload();
+
+  const table = page.locator(".query-block table.data-table");
+  await expect(page.getByText("2 of 2 results")).toBeVisible();
+
+  await (await cellIn(table, alpha, "Reading Status")).click();
+  const editor = page.locator("textarea.cell-editor");
+  await editor.fill("Read");
+  await editor.press("Enter");
+  await expect(editor).toHaveCount(0);
+  await waitForServerText(page, alpha, "Reading Status:: Read");
+  // The edited row no longer matches but stays where it is.
+  await expect(table.getByRole("row").filter({ hasText: alpha })).toHaveCount(1);
+
+  // A draft open in another cell is committed by the click on Refresh.
+  await (await cellIn(table, beta, "Author")).click();
+  await expect(editor).toHaveValue("Yolanda");
+  await editor.fill("Zed");
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await waitForServerText(page, beta, "Author:: Zed");
+  await expect(page.getByText("1 of 2 results")).toBeVisible();
+  await expect(table.getByRole("row").filter({ hasText: alpha })).toHaveCount(0);
+  // The refreshed records were asked for after the draft's write landed.
+  await expect(await cellIn(table, beta, "Author")).toHaveText("Zed");
+});

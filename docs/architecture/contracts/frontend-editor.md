@@ -156,6 +156,7 @@ is not a change. Reset and Save show only while it is dirty.
 | a cell written, no rows held | unchanged | unchanged | the rows on screen, in order | an edited row must neither move nor vanish under the reader |
 | a cell written, rows held | unchanged | unchanged | unchanged | the first edit's rows stay |
 | Reset | unchanged | the saved view | released | |
+| Refresh's records landed | unchanged | unchanged | released | the reader asked for what the query matches now |
 | Save, written | the live view | unchanged | unchanged | |
 | a refetch, the view dirty | the macro's options | unchanged | unchanged | a refetch must not lose the reader's changes |
 | a refetch, the view clean | the macro's options | the macro's options | unchanged | a Save on another device must not leave this one offering Reset |
@@ -178,6 +179,11 @@ than the reader's own changes.
 | rows held, a column's key | the key the current key stats give it, else the one the first edit's stats give it, each by label and then as a key; else the label | a held row's cell must read and write its own line |
 | rows held, the rows | the first edit's rows, in order, each from the current records or else from its last record; one the current records lack is stale | an edited row must neither move nor vanish |
 | a second edit while rows are held | what the first edit saw, unchanged | |
+| Refresh clicked, before records requested since the click land | as before the click | rows move once, onto new records, not against the ones on screen |
+| Refresh clicked, then records requested since the click land | as with no rows held | the reader asked for what the query matches now |
+| Refresh clicked, then its records fail | as before the click, and the next records that land release the rows | |
+| Refresh clicked, then a cell written while no rows are held | the Refresh is cancelled: the rows that edit holds, as after any edit | the refreshed records were requested before the edit, and would move or drop the row just written |
+| Refresh clicked, then a cell written while rows are held | the Refresh stays pending: records requested since the click release the rows | the reader asked for the held rows to go before this edit |
 
 ## What a query block fetches
 

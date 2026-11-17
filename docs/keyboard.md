@@ -172,7 +172,9 @@ matches out: `-status:read`. `status:` with nothing after it finds rows with
 an empty Status. Quotes keep a phrase together: `"machine learning"`.
 
 Save this view writes the view, filter, sort and columns into the query's own
-text, so they come back next time; Reset goes back to what was saved. Saved,
+text, so they come back next time; Reset goes back to what was saved.
+Editing a cell leaves the rows where they are, even one that no longer
+matches; Refresh runs the query again. Saved,
 a query reads like `{{query: {and: [[Paper]] [[LLM]]} | view: table | sort:
 Date desc | columns: Author, Date, URL}}`. You can type these options by hand
 too: `view:` is table, cards or blocks, `sort:` is a column then asc or desc,

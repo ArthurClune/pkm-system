@@ -5,15 +5,19 @@
 // when it is blocks they carry the grouped blocks too, so a query without
 // `::` cells takes one request. Otherwise the blocks come from /api/query,
 // started with the records when the macro saves the blocks view (until the
-// reader picks another) and on demand when the reader picks it. Cell writes
-// and Save need the host block's edit access and a connection: queries are
-// online-only. While a cell edit holds the rows in place, a refetch that
-// drops a held row's record keeps showing the record it last had
-// (holdRecords), so a row an edit took out of the query stays put,
-// writable, until the view changes; and a view or column list that follows
-// the data's defaults stays as the first edit saw it (showQuery). The state
-// and the rule for when to read /api/query are queryBlock.ts's; this file
-// runs the requests and dispatches their answers.
+// reader picks another) and on demand when the reader picks it. Results
+// load on mount, on a resync and on Refresh, never on a cell write; a
+// Refresh asks once this block's cell writes are delivered, or after
+// REFRESH_WAIT_MS. Cell
+// writes and Save need the host block's edit access and a connection:
+// queries are online-only. While a cell edit holds the rows in place, a
+// refetch that drops a held row's record keeps showing the record it last
+// had (holdRecords), so a row an edit took out of the query stays put,
+// writable, until the view changes or a Refresh's records land; and a view
+// or column list that follows the data's defaults stays as the first edit
+// saw it (showQuery). The state and the rule for when to read /api/query
+// are queryBlock.ts's; this file runs the requests and dispatches their
+// answers.
 import { Fragment, useCallback, useContext, useEffect, useLayoutEffect,
          useReducer, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -51,6 +55,10 @@ const VIEWS: { view: MacroView; label: string }[] = [
   { view: "table", label: "Table" },
   { view: "cards", label: "Cards" },
 ];
+
+// A delivery can stay out while connected (POSTs on backoff, a replica gone
+// for good), and a possibly stale answer beats a Refresh that does nothing.
+export const REFRESH_WAIT_MS = 2000;
 
 const loadKey = (expr: string, generation: number): string =>
   `${expr}\u0000${generation}`;
@@ -139,18 +147,56 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
 
   const step = (event: QueryViewEvent) => dispatch({ kind: "view", event });
 
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  // Offline the fetch fails at once with the offline error, so there is
+  // nothing to wait for. A write made during the wait is waited for too.
+  const refresh = () => {
+    dispatch({ kind: "refresh", load });
+    let done = false;
+    const bump = () => {
+      if (done) return;
+      done = true;
+      if (mounted.current) setGeneration((g) => g + 1);
+    };
+    if (status !== "connected") {
+      bump();
+      return;
+    }
+    const timer = setTimeout(bump, REFRESH_WAIT_MS);
+    const wait = () => {
+      if (done) return;
+      const writing = writes.settled();
+      if (writing !== null) {
+        void writing.then(wait);
+        return;
+      }
+      clearTimeout(timer);
+      bump();
+    };
+    wait();
+  };
+
   const header = (
     <div className="query-header">
       <span className="query-expr">query: {expr}</span>
-      {shown !== null && (
-        <span className="query-views" role="group" aria-label="View" {...island}>
-          {VIEWS.map(({ view: v, label }) => (
-            <button key={v} type="button" aria-pressed={shown.view === v}
-                    className="btn-secondary btn-compact"
-                    onClick={() => step({ kind: "view", view: v })}>{label}</button>
-          ))}
-        </span>
-      )}
+      <span className="query-actions" {...island}>
+        {shown !== null && (
+          <span className="query-views" role="group" aria-label="View">
+            {VIEWS.map(({ view: v, label }) => (
+              <button key={v} type="button" aria-pressed={shown.view === v}
+                      className="btn-secondary btn-compact"
+                      onClick={() => step({ kind: "view", view: v })}>{label}</button>
+            ))}
+          </span>
+        )}
+        <button type="button" className="btn-secondary btn-compact"
+                onClick={refresh}>Refresh</button>
+      </span>
     </div>
   );
 

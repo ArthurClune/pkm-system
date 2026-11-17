@@ -49,6 +49,15 @@ const MUTANTS: Record<string, Mutant> = {
     ...step((s, e) => e.kind === "loaded" ? { ...REAL.step(s, e), frozen: null }
       : REAL.step(s, e)),
   },
+  "release keeps the held rows": {
+    catches: ["frozen"],
+    ...step((s, e) => e.kind === "release" ? s : REAL.step(s, e)),
+  },
+  "release resets the live view": {
+    catches: ["live"],
+    ...step((s, e) => e.kind === "release" ? { ...s, live: s.saved, frozen: null }
+      : REAL.step(s, e)),
+  },
   "Save leaves the saved view as it was": {
     catches: ["saved", "clean"],
     ...step((s, e) => e.kind === "saved" ? s : REAL.step(s, e)),

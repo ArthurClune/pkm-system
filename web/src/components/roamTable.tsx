@@ -4,16 +4,16 @@
 // and replace it, so a page without a table never pays for them in the
 // entry chunk, and nothing moves while they load. Until then a click on the
 // table reaches the block row and opens its text, as before. Its body cells
-// show media as labels and carry data-cell-uid, as PlainTable's do, so the
-// swap neither fetches media nor misses a jump to a cell.
-import { useContext } from "react";
-import { CellMediaContext, OutlinePageContext } from "../contexts";
+// show media and carry data-cell-uid as PlainTable's do, so the swap
+// neither fetches media nor misses a jump to a cell.
+import { CellMediaContext, type CellMediaTarget } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import { InlineSegments } from "./InlineSegments";
 import { lazyLoader, useLazy } from "./lazyComponent";
 import type { RoamTableRows } from "../outline/roamTableRows";
 import type { PlainTableProps } from "./PlainTable";
 
+const PLAIN_CELL: CellMediaTarget = { table: "plain" };
 const loadPlainTable = lazyLoader(() => import("./tablesChunk").then((m) => m.PlainTable));
 
 export function RoamTable(props: PlainTableProps) {
@@ -26,7 +26,6 @@ export function RoamTable(props: PlainTableProps) {
 }
 
 function StaticTable({ rows }: { rows: RoamTableRows }) {
-  const page = useContext(OutlinePageContext);
   const [header, ...body] = rows;
   const content = (text: string) =>
     <InlineSegments segments={tokenizeBlock(text)} />;
@@ -46,7 +45,7 @@ function StaticTable({ rows }: { rows: RoamTableRows }) {
                   data-cell-uid={cell?.uid}>
                 <div className="table-cell">
                   {cell ? (
-                    <CellMediaContext.Provider value={{ page, uid: cell.uid }}>
+                    <CellMediaContext.Provider value={PLAIN_CELL}>
                       {content(cell.text)}
                     </CellMediaContext.Provider>
                   ) : null}

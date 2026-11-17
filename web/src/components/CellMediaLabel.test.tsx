@@ -43,17 +43,18 @@ function Probe() {
   return <p data-testid="loc">{loc.pathname + loc.hash}</p>;
 }
 
+const QUERY_CELL = { table: "query", page: PAGE, uid: UID } as const;
+
 function renderCell(text: string, opts: {
-  page?: typeof PAGE | null; cell?: boolean;
-  openInSidebar?: ReturnType<typeof vi.fn>;
+  cell?: boolean; openInSidebar?: ReturnType<typeof vi.fn>;
 } = {}) {
-  const { page = PAGE, cell = true, openInSidebar = vi.fn() } = opts;
+  const { cell = true, openInSidebar = vi.fn() } = opts;
   const body: ReactNode = <InlineSegments segments={tokenizeBlock(text)} />;
   return render(
     <MemoryRouter initialEntries={["/start"]}>
       <SidebarContext.Provider value={{ openInSidebar }}>
         {cell
-          ? <CellMediaContext.Provider value={{ page, uid: UID }}>
+          ? <CellMediaContext.Provider value={QUERY_CELL}>
               {body}
             </CellMediaContext.Provider>
           : body}
@@ -140,18 +141,12 @@ it("line_label_navigates_and_shift_opens_the_sidebar", async () => {
     .toHaveTextContent(`${pagePath(PAGE)}#${UID}`);
 });
 
-it("line_label_without_a_page_is_text", () => {
-  const { container } = renderCell(MERMAID, { page: null });
-  expect(screen.queryByRole("button")).toBeNull();
-  expect(container).toHaveTextContent("↗ Mermaid diagram");
-});
-
 it("label_click_does_not_reach_the_cell", async () => {
   const onCellClick = vi.fn();
   render(
     <MemoryRouter>
       <div onClick={onCellClick}>
-        <CellMediaContext.Provider value={{ page: PAGE, uid: UID }}>
+        <CellMediaContext.Provider value={QUERY_CELL}>
           <InlineSegments segments={tokenizeBlock(MERMAID)} />
         </CellMediaContext.Provider>
       </div>
@@ -186,7 +181,7 @@ it("pdf_viewer_that_fails_to_load_closes_and_reads_unavailable", async () => {
   const ctx = await import("../contexts");
   const { container } = render(
     <MemoryRouter>
-      <ctx.CellMediaContext.Provider value={{ page: PAGE, uid: UID }}>
+      <ctx.CellMediaContext.Provider value={QUERY_CELL}>
         <fresh.InlineSegments
           segments={tokenizeBlock(`[paper.pdf](/assets/${SHA}/paper.pdf)`)} />
       </ctx.CellMediaContext.Provider>

@@ -81,10 +81,13 @@ export const RootBlocksContext = createContext<BlockNode[]>([]);
  * click anywhere in the row navigates instead of expanding. */
 export const InertMediaContext = createContext(false);
 
-/** Set by a table cell or query card: media in it renders as a
- * CellMediaLabel, and a line label goes to `uid` on `page` (null: the
- * label is plain text). */
-export interface CellMediaTarget { page: RawTitle | null; uid: BlockUid }
+/** Set by a table cell or query card (cellMediaCore.ts). In a query
+ * table or card, media renders as a CellMediaLabel and a line label goes to
+ * `uid` on `page`. In a plain table that line is the cell itself, so code,
+ * sources and links render in the cell instead. */
+export type CellMediaTarget =
+  | { table: "plain" }
+  | { table: "query"; page: RawTitle; uid: BlockUid };
 export const CellMediaContext = createContext<CellMediaTarget | null>(null);
 
 /** The page an editable outline shows; null outside one. */

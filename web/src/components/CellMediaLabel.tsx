@@ -1,19 +1,19 @@
 // pattern: Imperative Shell
 // The one-line stand-in for media inside a table cell or query card. A PDF
 // or image opens its full-screen viewer over the table; any other media
-// goes to the line that holds it. Nothing is fetched until the click.
+// goes to the line that holds it, which a plain table never shows a label
+// for (cellMediaCore.ts). Nothing is fetched until the click.
 import { type MouseEvent, useContext, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { CellMediaContext, SidebarContext } from "../contexts";
+import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
-import type { CellMedia } from "./cellMediaCore";
+import type { LabelMedia } from "./cellMediaCore";
 import { ImageOverlay } from "./ImageOverlay";
 import { PdfEmbed } from "./PdfEmbed";
 
 const ICON = { pdf: "📄", image: "🖼", line: "↗" } as const;
 
-export function CellMediaLabel({ media }: { media: CellMedia }) {
-  const target = useContext(CellMediaContext);
+export function CellMediaLabel({ media }: { media: LabelMedia }) {
   const { openInSidebar } = useContext(SidebarContext);
   const navigate = useNavigate();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -27,13 +27,10 @@ export function CellMediaLabel({ media }: { media: CellMedia }) {
   let ariaLabel: string | undefined;
   let activate: (event: MouseEvent) => void;
   if (media.kind === "line") {
-    const page = target?.page ?? null;
-    if (target === null || page === null) {
-      return <span className="cell-media-label">{text}</span>;
-    }
+    const { page, uid } = media;
     activate = (event) => {
-      if (event.shiftKey) openInSidebar(page, target.uid);
-      else void navigate(`${pagePath(page)}#${target.uid}`);
+      if (event.shiftKey) openInSidebar(page, uid);
+      else void navigate(`${pagePath(page)}#${uid}`);
     };
   } else {
     const kind = media.kind === "pdf" ? "PDF" : "image";

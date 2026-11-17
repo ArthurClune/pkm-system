@@ -38,9 +38,20 @@ export function InlineSegments({ segments, depth = 0 }:
 }
 
 function Segment({ seg, depth }: { seg: BlockSegment; depth: number }) {
-  const inCell = useContext(CellMediaContext) !== null;
-  const media = inCell ? cellMedia(seg) : null;
-  if (media !== null) return <CellMediaLabel media={media} />;
+  const target = useContext(CellMediaContext);
+  const media = target === null ? null : cellMedia(seg, target);
+  if (media !== null) {
+    switch (media.kind) {
+      case "code":
+        return <CodeBlock lang={media.lang} code={media.code} />;
+      case "link":
+        return <a href={media.href} target="_blank" rel="noreferrer">{media.href}</a>;
+      case "source":
+        return <>{media.text}</>;
+      default:
+        return <CellMediaLabel media={media} />;
+    }
+  }
   switch (seg.kind) {
     case "text":
       return <>{seg.text}</>;

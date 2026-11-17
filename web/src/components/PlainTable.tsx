@@ -12,12 +12,12 @@
 //
 // DataTable may commit an open cell after this component has unmounted, so
 // onWrite reads only its props.
-import { useContext, useState } from "react";
+import { useState } from "react";
 import type { CreateOp, UpdateTextOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
 import type { MacroOptions } from "../grammar/macroOptions";
 import { formatMacroOptions, optionsRefusal } from "../grammar/macroOptionsWrite";
-import { CellMediaContext, OutlinePageContext } from "../contexts";
+import { CellMediaContext, type CellMediaTarget } from "../contexts";
 import { tokenizeBlock } from "../grammar/tokenize";
 import type { OutlineHandlers } from "../outline/handlers";
 import { roamTable, type RoamTableRows } from "../outline/roamTableRows";
@@ -48,6 +48,7 @@ export interface PlainTableProps {
 }
 
 const content = (text: string) => <InlineSegments segments={tokenizeBlock(text)} />;
+const PLAIN_CELL: CellMediaTarget = { table: "plain" };
 
 export function PlainTable({ node, rows, options, handlers,
                              editable }: PlainTableProps) {
@@ -67,7 +68,6 @@ export function PlainTable({ node, rows, options, handlers,
   // the filter or a frozen view would leave them out, until the view changes.
   const [added, setAdded] = useState<{ live: ViewFields; ids: string[] } | null>(null);
   const [openCell, setOpenCell] = useState<CellRef | null>(null);
-  const page = useContext(OutlinePageContext);
 
   const step = (e: ViewEvent) => setView((v) => stepView(v, e));
   const live = view.live;
@@ -160,7 +160,7 @@ export function PlainTable({ node, rows, options, handlers,
           const cell = r.item.cells[at.get(c.key)!];
           if (!cell) return null;
           return (
-            <CellMediaContext.Provider value={{ page, uid: cell.uid }}>
+            <CellMediaContext.Provider value={PLAIN_CELL}>
               {content(cell.text)}
             </CellMediaContext.Provider>
           );

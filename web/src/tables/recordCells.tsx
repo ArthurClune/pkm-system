@@ -62,7 +62,7 @@ export function CellValue({ cell, page, depth }:
   const children = cell.child_count ?? 0;
   return (
     <>
-      <CellMediaContext.Provider value={{ page, uid: cell.uid }}>
+      <CellMediaContext.Provider value={{ table: "query", page, uid: cell.uid }}>
         <InlineSegments segments={tokenizeBlock(cell.value)} depth={depth} />
       </CellMediaContext.Provider>
       {lines > 1 && (

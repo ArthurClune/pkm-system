@@ -89,30 +89,40 @@ resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
 ### Media in table cells
 
 A query's Table and Cards cells (`CellValue`) and a plain table's body cells
-(`PlainTable`) provide `CellMediaContext`, naming the cell's page and uid.
-Under it, `Segment` asks `cellMedia` (`cellMediaCore.ts`) first, and a
-segment that would render as an embed becomes a one-line `CellMediaLabel`.
-A row stays table-sized, and nothing is fetched until the label's click. A
-value's other segments render as they do anywhere else.
+(`PlainTable`) provide `CellMediaContext`. Its `CellMediaTarget` says which
+table the cell is in, and for a query cell names the cell's page and uid.
+Under it, `Segment` asks `cellMedia` (`cellMediaCore.ts`) first. A value's
+other segments render as they do anywhere else.
 
-| `cellMedia` kind | From | Click | Shift-click |
-|---|---|---|---|
-| `pdf` | a link or `pdf-embed` with `isPdfHref` | `PdfEmbed` in overlay mode (`onClose`), as `/files` opens a PDF | same |
-| `image` | an `image` segment, upload or external | `ImageOverlay` | same |
-| `line` | a bare Bluesky post URL, a code block, a mermaid diagram, a query | the line that holds it: `pagePath(page)#uid` | `openInSidebar(page, uid)` |
+| Segment | Query table or card | Plain table |
+|---|---|---|
+| a link or `pdf-embed` with `isPdfHref` | `pdf` label: `PdfEmbed` in overlay mode (`onClose`), as `/files` opens a PDF | same |
+| an `image`, upload or external | `image` label: `ImageOverlay` | same |
+| a code block | `line` label | `CodeBlock` |
+| a mermaid diagram | `line` label | `CodeBlock` with no language |
+| a bare Bluesky post URL | `line` label | a plain link |
+| a query | `line` label | the segment's `source` text |
+
+A label (`CellMediaLabel`) keeps a row table-sized, and nothing is fetched
+until its click. A
+`line` label goes to the line that holds the media, `pagePath(page)#uid`,
+and shift-click calls `openInSidebar(page, uid)`. A query cell's line is on
+another page, where the outline renders the media. A plain table's line
+would be the cell itself, so a plain table renders that media in place
+instead of a label that leads back to where it sits.
 
 The label is a button that stops its click: the `<td>` opens the cell editor
-on any click that reaches it. `RoamTable`'s `StaticTable`, shown until the
-tables chunk loads, provides the same context and `data-cell-uid`, so the
-swap to `PlainTable` neither fetches media nor misses a jump. In overlay mode
-`PdfEmbed` renders nothing in place while the viewer chunk loads, and a
-failed chunk calls `onError`, so the label reads "(unavailable)" instead of
-the cell growing a link. A plain table's line is the cell's own block,
-on the page `OutlinePageContext` names (`EditablePage` provides it). With no
-page the line label is plain text. The jump finds a plain-table cell by the
-`data-cell-uid` that `DataTable`'s `cellAnchor` writes on the `<td>`, never
-`data-uid`, which `useOutline`, `useDropZone` and `FindBar` read as a block
-row. Row titles (`RecordLink`) keep media inert instead, under
+on any click that reaches it, including one on a code block in a plain
+cell.
+`RoamTable`'s `StaticTable`, shown until the tables chunk loads, provides the
+same context and `data-cell-uid`, so the swap to `PlainTable` neither fetches
+media nor misses a jump. In overlay mode `PdfEmbed` renders nothing in place
+while the viewer chunk loads, and a failed chunk calls `onError`, so the
+label reads "(unavailable)" instead of the cell growing a link. A jump to a
+plain-table cell, from a link or ref to its uid or a search hit, finds the
+`data-cell-uid` that `DataTable`'s `cellAnchor` writes on the `<td>`. It
+never uses `data-uid`, which `useOutline`, `useDropZone` and `FindBar` read
+as a block row. Row titles (`RecordLink`) keep media inert instead, under
 `InertMediaContext`.
 
 `TodoCheckbox`, a query's cell editor and its "Save this view" act on the host

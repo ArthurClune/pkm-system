@@ -4,7 +4,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockOp, CreateOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { BlockRefContext, OutlinePageContext } from "../contexts";
+import { BlockRefContext } from "../contexts";
 import { roamTable } from "../outline/roamTableRows";
 import type { OutlineHandlers } from "../outline/handlers";
 import { block, canonicalTitleOf, orderIdxOf, uidOf } from "../test-helpers";
@@ -373,13 +373,15 @@ describe("RoamTable", () => {
 
 const IMG = `![Bed](/assets/${"ab".repeat(32)}/bed.png)`;
 const MERMAID = "```mermaid\ngraph TD; A-->B\n```";
+const POST = "https://bsky.app/profile/alice.bsky.social/post/3k2abc123xy";
 
-/** A table whose first body row holds an image in its second cell
- * (tuid-ax) and whose second holds a mermaid block (tuid-bx). */
+/** A table whose body rows hold, in their second cells, an image
+ * (tuid-ax), a mermaid block (tuid-bx) and a Bluesky post (tuid-cx). */
 const mediaTable = () => table("{{table}}", [
   chain("tuid-h", ["Lab", "Media"]),
   chain("tuid-a", ["apache", IMG]),
   chain("tuid-b", ["nginx", MERMAID]),
+  chain("tuid-c", ["bsky", POST]),
 ]);
 
 function LocProbe() {
@@ -393,10 +395,8 @@ function mountMedia() {
     const tt = roamTable(n)!;
     return (
       <MemoryRouter initialEntries={[pagePath(PAGE)]}>
-        <OutlinePageContext.Provider value={PAGE}>
-          <RoamTable node={n} rows={tt.rows} options={tt.options}
-                     handlers={handlers} editable />
-        </OutlinePageContext.Provider>
+        <RoamTable node={n} rows={tt.rows} options={tt.options}
+                   handlers={handlers} editable />
         <LocProbe />
       </MemoryRouter>
     );
@@ -466,13 +466,30 @@ describe("RoamTable media cells", () => {
     expect(imageLabel().closest("td")).not.toHaveAttribute("data-uid");
   });
 
-  it("a line label goes to the cell's own block on this page", async () => {
+  it("a mermaid cell shows its source as code, with no label", async () => {
     mountMedia();
     await loaded();
-    fireEvent.click(screen.getByRole("button", { name: "↗ Mermaid diagram" }));
-    expect(screen.getByTestId("loc"))
-      .toHaveTextContent(`${pagePath(PAGE)}#tuid-bx`);
+    expect(screen.queryByRole("button", { name: /Mermaid/ })).toBeNull();
+    const pre = screen.getByText("graph TD; A-->B").closest("pre.code-block");
+    expect(pre).not.toBeNull();
+    expect(pre!.closest("td")).toHaveAttribute("data-cell-uid", "tuid-bx");
+  });
+
+  it("a click on a code cell opens the cell editor", async () => {
+    mountMedia();
+    await loaded();
+    fireEvent.click(screen.getByText("graph TD; A-->B"));
+    expect(tableEditor()).not.toBeNull();
+  });
+
+  it("a Bluesky cell is a link whose click opens no editor", async () => {
+    mountMedia();
+    await loaded();
+    const link = screen.getByRole("link", { name: POST });
+    expect(link).toHaveAttribute("href", POST);
+    fireEvent.click(link);
     expect(tableEditor()).toBeNull();
+    expect(screen.getByTestId("loc")).toHaveTextContent(pagePath(PAGE));
   });
 });
 
@@ -480,22 +497,20 @@ describe("RoamTable media cells before the tables chunk loads", () => {
   it("shows labels, fetches nothing and anchors the cell", async () => {
     vi.resetModules();
     const fresh = await import("./roamTable");
-    const ctx = await import("../contexts");
     const t = roamTable(mediaTable())!;
     const { handlers } = spyHandlers();
     const { container } = render(
       <MemoryRouter>
-        <ctx.OutlinePageContext.Provider value={PAGE}>
-          <fresh.RoamTable node={mediaTable()} rows={t.rows}
-                           options={t.options} handlers={handlers} editable />
-        </ctx.OutlinePageContext.Provider>
+        <fresh.RoamTable node={mediaTable()} rows={t.rows}
+                         options={t.options} handlers={handlers} editable />
       </MemoryRouter>);
     expect(screen.getByRole("table")).toHaveClass("roam-table");
     expect(container.querySelector("img")).toBeNull();
     expect(imageLabel().closest("td"))
       .toHaveAttribute("data-cell-uid", "tuid-ax");
-    expect(screen.getByRole("button", { name: "↗ Mermaid diagram" }))
-      .toBeInTheDocument();
+    expect(screen.getByText("graph TD; A-->B").closest("pre.code-block"))
+      .not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Mermaid/ })).toBeNull();
     await loaded();
     vi.resetModules();
   });

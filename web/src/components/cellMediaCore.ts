@@ -1,8 +1,12 @@
 // pattern: Functional Core
-// Which inline segments a table cell shows as a one-line label instead of
-// the media itself, and what the label says. The tests mirror the dispatch
-// in InlineSegments' Segment, so a segment is media here exactly when the
-// outline would render it as an embed.
+// What a table cell shows for a segment the outline would render as an
+// embed: a one-line label (a PDF or image opens its viewer; other media
+// goes to the line that holds it), or, in a plain table, where that line is
+// the cell itself, the media in a form that fits a cell. The tests mirror
+// the dispatch in InlineSegments' Segment, so a segment is media here
+// exactly when the outline would render it as an embed.
+import type { BlockUid, RawTitle } from "../api/brands";
+import type { CellMediaTarget } from "../contexts";
 import type { BlockSegment } from "../grammar/tokenize";
 import { isBlueskyPostUrl } from "./bluesky";
 import { isPdfHref, pdfLabelFromHref } from "./externalMedia";
@@ -10,7 +14,12 @@ import { isPdfHref, pdfLabelFromHref } from "./externalMedia";
 export type CellMedia =
   | { kind: "pdf"; href: string; label: string }
   | { kind: "image"; src: string; alt: string; label: string }
-  | { kind: "line"; label: string };
+  | { kind: "line"; label: string; page: RawTitle; uid: BlockUid }
+  | { kind: "code"; lang: string | null; code: string }
+  | { kind: "link"; href: string }
+  | { kind: "source"; text: string };
+
+export type LabelMedia = Extract<CellMedia, { kind: "pdf" | "image" | "line" }>;
 
 function imageLabel(src: string, alt: string): string {
   if (alt) return alt;
@@ -24,7 +33,13 @@ function imageLabel(src: string, alt: string): string {
   }
 }
 
-export function cellMedia(seg: BlockSegment): CellMedia | null {
+export function cellMedia(
+  seg: BlockSegment, target: CellMediaTarget,
+): CellMedia | null {
+  const line = (label: string, inPlace: CellMedia): CellMedia =>
+    target.table === "plain"
+      ? inPlace
+      : { kind: "line", label, page: target.page, uid: target.uid };
   switch (seg.kind) {
     case "pdf-embed":
       if (!isPdfHref(seg.href)) return null;
@@ -34,7 +49,7 @@ export function cellMedia(seg: BlockSegment): CellMedia | null {
         return { kind: "pdf", href: seg.href, label: seg.text };
       }
       if (seg.text === seg.href && isBlueskyPostUrl(seg.href)) {
-        return { kind: "line", label: "Bluesky post" };
+        return line("Bluesky post", { kind: "link", href: seg.href });
       }
       return null;
     case "image":
@@ -43,12 +58,11 @@ export function cellMedia(seg: BlockSegment): CellMedia | null {
         label: imageLabel(seg.src, seg.alt),
       };
     case "code-block":
-      return {
-        kind: "line",
-        label: seg.lang === "mermaid" ? "Mermaid diagram" : "Code block",
-      };
+      return seg.lang === "mermaid"
+        ? line("Mermaid diagram", { kind: "code", lang: null, code: seg.code })
+        : line("Code block", { kind: "code", lang: seg.lang, code: seg.code });
     case "query":
-      return { kind: "line", label: "Query" };
+      return line("Query", { kind: "source", text: seg.source });
     default:
       return null;
   }

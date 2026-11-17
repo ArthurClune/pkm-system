@@ -15,6 +15,7 @@ import { tokenizeBlock } from "../grammar/tokenize";
 import { acquireOutlineSession } from "../outline/outlineSessions";
 import { sha256Hex } from "../replica/sha256";
 import { subtreeHash } from "../replica/subtreeHash";
+import type { DeliveryOutcome } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { InlineSegments } from "./InlineSegments";
 import { QueryBlock } from "./QueryBlock";
@@ -1250,20 +1251,106 @@ describe("refresh", () => {
       expect(fetched(mock, `/api/query?${BOOK_ENC}`)).toBe(2));
   });
 
-  it("Refresh commits an open cell draft", async () => {
-    stubBooks();
+  /** The records route as the server answers it: `AFTER` once the block's
+   * writes are delivered, `BOOKS` before. */
+  function serveDeliveries(sync: SyncFake) {
+    const AFTER: QueryRecordsPayload = { ...BOOKS, records: [
+      bookRecord("p:alpha", "Book/Alpha", {
+        ...ALPHA_BOOK.cells,
+        Author: bookCell("aauthor1", "Author:: Xavier Q",
+                         { extra_uids: [uidOf("aauthor2")] }),
+        "Reading Status": bookCell("astatus1", "Reading Status:: Unread") }),
+      BETA_BOOK] };
+    const delivery = defer<DeliveryOutcome>();
+    let onServer = false;
+    const enqueue = sync.enqueue;
+    sync.enqueue = (ops, scope) => ({ ...enqueue(ops, scope),
+                                      delivered: delivery.promise });
+    const mock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith(recordsUrl(BOOK_ENC))) {
+        return Promise.resolve(jsonResponse(onServer ? AFTER : BOOKS));
+      }
+      return Promise.resolve(jsonResponse({ groups: BOOK_GROUPS, total: 2 }));
+    });
+    vi.stubGlobal("fetch", mock);
+    const deliver = (outcome: () => void) =>
+      act(async () => { onServer = true; outcome(); });
+    return { mock, delivery, deliver };
+  }
+
+  /** A real click: its mousedown commits an open cell first. */
+  function pressRefresh() {
+    const button = screen.getByRole("button", { name: "Refresh" });
+    fireEvent.mouseDown(button);
+    fireEvent.mouseUp(button);
+    fireEvent.click(button);
+  }
+
+  it("Refresh commits an open cell draft and shows it once delivered",
+     async () => {
     const sync = makeSync();
+    const { mock, delivery, deliver } = serveDeliveries(sync);
     renderBlock(`{{query: ${BOOK}}}`, { sync });
     await screen.findByRole("table");
     await write("Book/Alpha", "Reading Status", "Unread");
     fireEvent.click(cellOf("Book/Alpha", "Author"));
     fireEvent.change(editor(), { target: { value: "Xavier Q" } });
-    stubBooks({ ...BOOKS, records: [BETA_BOOK], total: 1 });
-    refresh();
-    expect(await screen.findByText("1 of 1 results")).toBeInTheDocument();
-    expect(screen.queryByText("Book/Alpha")).toBeNull();
+    pressRefresh();
     expect(sync.sent[1]).toEqual([expect.objectContaining({
       op: "update_text", uid: "aauthor1", text: "Author:: Xavier Q",
       base_text_hash: sha256Hex("Author:: Xavier") })]);
+    await settle();
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(1);
+    await deliver(() => delivery.resolve({ status: "delivered" }));
+    await vi.waitFor(() =>
+      expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2));
+    await settle();
+    expect(cellOf("Book/Alpha", "Author")).toHaveTextContent("Xavier Q");
+    expect(cellOf("Book/Alpha", "Reading Status"))
+      .toHaveTextContent(/^Unread$/);
+  });
+
+  it("Refresh still fetches when a write's delivery rejects", async () => {
+    const sync = makeSync();
+    const { mock, delivery, deliver } = serveDeliveries(sync);
+    renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    pressRefresh();
+    await settle();
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(1);
+    await deliver(() => delivery.reject(new Error("worker gone")));
+    await vi.waitFor(() =>
+      expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2));
+    expect(screen.getByText(/write to Book\/Alpha failed: Error: worker gone/))
+      .toBeInTheDocument();
+  });
+
+  it("Refresh offline does not wait for writes to deliver", async () => {
+    const sync = makeSync();
+    const { mock } = serveDeliveries(sync);
+    const { setSync } = renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    const offline = makeSync("reconnecting");
+    offline.enqueue = sync.enqueue;
+    setSync(offline);
+    pressRefresh();
+    await vi.waitFor(() =>
+      expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2));
+  });
+
+  it("Refresh after unmount fetches nothing", async () => {
+    const sync = makeSync();
+    const { mock, delivery, deliver } = serveDeliveries(sync);
+    const { unmount } = renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    pressRefresh();
+    unmount();
+    await deliver(() => delivery.resolve({ status: "delivered" }));
+    await settle();
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(1);
   });
 });

@@ -157,4 +157,6 @@ test("Refresh lets a row an edit took out of the query go",
   await waitForServerText(page, beta, "Author:: Zed");
   await expect(page.getByText("1 of 2 results")).toBeVisible();
   await expect(table.getByRole("row").filter({ hasText: alpha })).toHaveCount(0);
+  // The refreshed records were asked for after the draft's write landed.
+  await expect(await cellIn(table, beta, "Author")).toHaveText("Zed");
 });

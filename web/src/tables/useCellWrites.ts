@@ -12,12 +12,16 @@
 //
 // DataTable may commit an open cell after this hook's cleanup has run (its
 // unmount commit), so `write` uses nothing the cleanup tears down.
+//
+// `settled` lets Refresh wait for the writes it would otherwise race: the
+// click's own mousedown commits an open cell, and records requested before
+// that write reaches the server would show the old value.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BlockOp } from "../api/ops";
 import type { QueryRecordModel } from "../api/payloads";
 import { textLimitNotice, textLimitViolation } from "../grammar/textLimits";
 import { peekOutlineSession } from "../outline/outlineSessions";
-import type { WriteTicket } from "../sync/opQueue";
+import type { DeliveryOutcome, WriteTicket } from "../sync/opQueue";
 import { useSyncActions } from "../sync/SyncProvider";
 import { newUid } from "../uid";
 import {
@@ -41,6 +45,7 @@ export function useCellWrites(patch: Patch) {
   const press = useRef<{ on: boolean; held: CellNotice | null | undefined }>(
     { on: false, held: undefined });
   const ids = useRef(0);
+  const inFlight = useRef(new Set<Promise<void>>());
 
   useEffect(() => {
     // Window capture runs before the cell editor's document capture.
@@ -102,12 +107,16 @@ export function useCellWrites(patch: Patch) {
       }
     }
     patch(r.key, shown);
-    void ticket.delivered.then((outcome) => {
-      if (outcome.status === "delivered") return;
-      patch(r.key, unsent);
-      show({ id: ++ids.current,
-             message: `The write to ${r.page_title} failed: ${String(outcome.error)}` });
-    });
+    const done = ticket.delivered
+      .catch((error: unknown): DeliveryOutcome => ({ status: "failed", error }))
+      .then((outcome) => {
+        inFlight.current.delete(done);
+        if (outcome.status === "delivered") return;
+        patch(r.key, unsent);
+        show({ id: ++ids.current,
+               message: `The write to ${r.page_title} failed: ${String(outcome.error)}` });
+      });
+    inFlight.current.add(done);
     return true;
   }, [sync, patch, show]);
 
@@ -136,5 +145,12 @@ export function useCellWrites(patch: Patch) {
 
   const dismiss = useCallback(() => setNotice(null), []);
 
-  return { write, notice, dismiss, noticeRef };
+  /** Resolves once every write sent so far is delivered or failed; null
+   * when none is out, so a caller can act in the same task. */
+  const settled = useCallback((): Promise<void> | null => {
+    const out = [...inFlight.current];
+    return out.length === 0 ? null : Promise.all(out).then(() => undefined);
+  }, []);
+
+  return { write, notice, dismiss, noticeRef, settled };
 }

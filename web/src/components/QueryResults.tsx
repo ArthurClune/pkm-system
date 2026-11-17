@@ -6,7 +6,8 @@
 // `::` cells takes one request. Otherwise the blocks come from /api/query,
 // started with the records when the macro saves the blocks view (until the
 // reader picks another) and on demand when the reader picks it. Results
-// load on mount, on a resync and on Refresh, never on a cell write. Cell
+// load on mount, on a resync and on Refresh, never on a cell write; a
+// Refresh asks once this block's cell writes are delivered. Cell
 // writes and Save need the host block's edit access and a connection:
 // queries are online-only. While a cell edit holds the rows in place, a
 // refetch that drops a held row's record keeps showing the record it last
@@ -141,9 +142,20 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
 
   const step = (event: QueryViewEvent) => dispatch({ kind: "view", event });
 
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  // Offline the fetch fails at once with the offline error, so there is
+  // nothing to wait for.
   const refresh = () => {
     dispatch({ kind: "refresh", load });
-    setGeneration((g) => g + 1);
+    const bump = () => { if (mounted.current) setGeneration((g) => g + 1); };
+    const writing = status === "connected" ? writes.settled() : null;
+    if (writing === null) bump();
+    else void writing.then(bump);
   };
 
   const header = (

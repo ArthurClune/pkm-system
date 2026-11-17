@@ -345,6 +345,13 @@ function rowTitles(): string[] {
 
 const filterBox = () => screen.getByRole("searchbox", { name: "Filter" });
 
+async function write(row: string, label: string, value: string) {
+  fireEvent.click(cellOf(row, label));
+  fireEvent.change(editor(), { target: { value } });
+  fireEvent.keyDown(editor(), { key: "Enter" });
+  await act(async () => { await Promise.resolve(); });
+}
+
 describe("query views", () => {
   it("shows a table by default when any record has :: lines", async () => {
     stubBooks();
@@ -629,13 +636,6 @@ describe("without edit access", () => {
 });
 
 describe("cell writes", () => {
-  async function write(row: string, label: string, value: string) {
-    fireEvent.click(cellOf(row, label));
-    fireEvent.change(editor(), { target: { value } });
-    fireEvent.keyDown(editor(), { key: "Enter" });
-    await act(async () => { await Promise.resolve(); });
-  }
-
   it("updates the line, names it, and Undo restores what it held", async () => {
     stubBooks();
     const { sync } = renderBlock(`{{query: ${BOOK}}}`);
@@ -1162,5 +1162,108 @@ describe("one request per default view", () => {
     later.resolve(jsonResponse({ detail: "boom" }, 500));
     expect(await screen.findByText(/500/)).toBeInTheDocument();
     expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
+  });
+});
+
+describe("refresh", () => {
+  const fetched = (mock: ReturnType<typeof stubFetch>, url: string) =>
+    mock.mock.calls.filter(([u]) => String(u) === url).length;
+  const refresh = () =>
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  const settle = () =>
+    act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  const READ_BETA = bookRecord("p:beta", "Book/Beta", {
+    ...BETA_BOOK.cells,
+    "Reading Status": bookCell("bstatus1", "Reading Status:: Read") });
+
+  /** Renders the books filtered to the unread, then writes Beta's status
+   * to Read, which holds Beta in place though it no longer matches. */
+  async function editBetaOutOfFilter() {
+    stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    fireEvent.change(filterBox(), { target: { value: "-status:read" } });
+    await write("Book/Beta", "Reading Status", "Read");
+    expect(screen.getByText("no longer matches")).toBeInTheDocument();
+  }
+
+  it("a cell write fetches nothing", async () => {
+    const mock = stubBooks();
+    renderBlock(`{{query: ${BOOK}}}`);
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    await settle();
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(1);
+  });
+
+  it("Refresh fetches the records again", async () => {
+    const mock = stubBooks();
+    const host = vi.fn();
+    renderBlock(`{{query: ${BOOK}}}`, { onHostClick: host });
+    await screen.findByRole("table");
+    refresh();
+    await vi.waitFor(() =>
+      expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2));
+    expect(host).not.toHaveBeenCalled();
+  });
+
+  it("Refresh lets a row an edit took out of the filter go", async () => {
+    await editBetaOutOfFilter();
+    stubBooks({ ...BOOKS, records: [ALPHA_BOOK, READ_BETA] });
+    refresh();
+    await vi.waitFor(() =>
+      expect(screen.queryByText("no longer matches")).toBeNull());
+    expect(screen.getByText("0 of 2 results")).toBeInTheDocument();
+    expect(rowTitles()).toEqual([]);
+    expect(filterBox()).toHaveValue("-status:read");
+  });
+
+  it("Refresh keeps the rows until the new records land", async () => {
+    await editBetaOutOfFilter();
+    const later = defer<Response>();
+    routeFetch([[recordsUrl(BOOK_ENC), later.promise]]);
+    refresh();
+    await settle();
+    expect(screen.getByText("no longer matches")).toBeInTheDocument();
+    later.resolve(jsonResponse({ ...BOOKS, records: [ALPHA_BOOK, READ_BETA] }));
+    await vi.waitFor(() =>
+      expect(screen.queryByText("no longer matches")).toBeNull());
+    expect(rowTitles()).toEqual([]);
+  });
+
+  it("Refresh retries after an error", async () => {
+    routeFetch([[recordsUrl(BOOK_ENC), jsonResponse({ detail: "boom" }, 500)]]);
+    renderBlock(`{{query: ${BOOK}}}`);
+    expect(await screen.findByText(/500/)).toBeInTheDocument();
+    stubBooks();
+    refresh();
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.queryByText(/500/)).toBeNull();
+  });
+
+  it("Refresh in the blocks view fetches the groups again", async () => {
+    const mock = stubBooks();
+    renderBlock(`{{query: ${BOOK} | view: blocks}}`);
+    expect(await screen.findByText("Book/Beta")).toBeInTheDocument();
+    refresh();
+    await vi.waitFor(() =>
+      expect(fetched(mock, `/api/query?${BOOK_ENC}`)).toBe(2));
+  });
+
+  it("Refresh commits an open cell draft", async () => {
+    stubBooks();
+    const sync = makeSync();
+    renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    fireEvent.click(cellOf("Book/Alpha", "Author"));
+    fireEvent.change(editor(), { target: { value: "Xavier Q" } });
+    stubBooks({ ...BOOKS, records: [BETA_BOOK], total: 1 });
+    refresh();
+    expect(await screen.findByText("1 of 1 results")).toBeInTheDocument();
+    expect(screen.queryByText("Book/Alpha")).toBeNull();
+    expect(sync.sent[1]).toEqual([expect.objectContaining({
+      op: "update_text", uid: "aauthor1", text: "Author:: Xavier Q",
+      base_text_hash: sha256Hex("Author:: Xavier") })]);
   });
 });

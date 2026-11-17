@@ -14,7 +14,7 @@ Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each 
 - [ ] vite 6 to 8, with @vitejs/plugin-react 6 and vite-plugin-pwa 2. vite-plugin-pwa 2 is what clears the glob and minimatch advisories that reach the build through workbox-build. Bundle and precache budgets need re-checking.
 - [ ] TypeScript 5.9 to 7, checking typescript-eslint and the eslint brand rules support it.
 - [ ] mermaid 11 to 12. It is pinned ~11.16.1 so that any bump forces the mermaidSafety mirror re-check against the new mermaid and dompurify.
-- [ ] katex 0.18 to 0.19: re-check that it still refuses links and images. The katex override in pnpm-workspace.yaml must keep one katex install.
+- [x] katex 0.18 to 0.19 (pkm-adqc): re-check that it still refuses links and images. The katex override in pnpm-workspace.yaml must keep one katex install.
 - [x] jsdom 26 to 31 for the unit suite (pkm-mfj7).
 - [ ] @playwright/test 1.61 to 1.65. It is pinned exactly because 1.65 needs a newer cached browser.
 - [ ] websockets 16 to 17 on the server. It is bounded <17 in server/pyproject.toml: only uvicorn's WS transport uses it, which pytest does not reach, so the check is the Playwright suite plus a live sync session.

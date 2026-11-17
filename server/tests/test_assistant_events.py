@@ -103,7 +103,7 @@ def test_current_block_sse_shapes():
     assert _sse_current(None) is None
 
 
-def test_tool_error_reason_reads_text_items_and_drops_fastmcp_prefix():
+def test_tool_error_reason_reads_text_items_and_drops_mcp_tool_prefix():
     content = [{"type": "text", "text": "Error executing tool update_block: "
                 "block ((AbC)) changed after the approval card showed it, "
                 "so nothing was written"},
@@ -146,14 +146,14 @@ def test_tool_error_reason_drops_a_leading_http_status():
     assert tool_error_reason("404: 404: Not Found") == "404: Not Found"
 
 
-def test_tool_error_reason_drops_the_cli_wrapper_then_the_fastmcp_prefix():
-    # unwrapped, as FastMCP's isError text
+def test_tool_error_reason_drops_the_cli_wrapper_then_the_mcp_tool_prefix():
+    # unwrapped, as MCPServer's is_error text
     assert tool_error_reason(
         f"Error executing tool update_block: {_REFUSAL}") == _REFUSAL
     # wrapped, no prefix: the shape of the CLI's own deny results
     assert tool_error_reason(
         f"<tool_use_error>{_REFUSAL}</tool_use_error>") == _REFUSAL
-    # wrapped with the FastMCP prefix, and with the CLI's own prefixes
+    # wrapped with the MCPServer prefix, and with the CLI's own prefixes
     assert tool_error_reason(
         "<tool_use_error>Error executing tool update_block: "
         f"{_REFUSAL}</tool_use_error>") == _REFUSAL

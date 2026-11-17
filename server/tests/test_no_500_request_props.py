@@ -14,7 +14,7 @@ import json
 import typing
 from urllib.parse import quote
 
-import httpx
+import httpx2
 import pytest
 from asgi_harness import Harness, check_every_row, encode_segment, open_harness
 from fastapi.params import File, Form
@@ -169,7 +169,7 @@ def _reset(harness: Harness, data, plain_space: bool | None = None) -> None:
 
 def _send_checked(harness: Harness,
                   drawn: tuple[str, str, str, dict, set[str]]
-                  ) -> httpx.Response:
+                  ) -> httpx2.Response:
     name, method, url, kwargs, labels = drawn
     count("request")
     response = harness.send(method, url, **kwargs)

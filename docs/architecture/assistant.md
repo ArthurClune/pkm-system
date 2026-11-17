@@ -65,9 +65,9 @@ user who has had the chance to read all of it.
 | Rule | Reason |
 |---|---|
 | Targets come first, and targets and content values reach the card whole; [Bounds](#bounds) refuses a card too large to render | A long value ahead of a `uid` or `title` would hide which block or page is written |
-| A key the tool's FastMCP argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so its row could only be a decoy beside the real target |
+| A key the tool's `MCPServer` argument model does not declare is a `Refusal` (for `batch`, anything beside `commands`) | The tool drops such a key, so its row could only be a decoy beside the real target |
 | A declared field `WRITE_PREVIEW_FIELDS` does not name still shows as a target | A new argument is shown, never hidden (`test_every_tool_field_is_classified`) |
-| `check_write()` validates with the tool's own FastMCP argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | FastMCP coerces arguments, so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
+| `check_write()` validates with the tool's own `MCPServer` argument model and, for `batch`, the schema `apply_batch` applies; input they reject is a `Refusal` | `MCPServer` coerces arguments, so the card must show the coerced value. `test_preview_matches_what_the_tool_receives` pins the parity |
 | Any exception inside `check_write()` or `build_write_preview()` is a `Refusal`, logged with its type only | Raised out of `can_use_tool`, it would reach the SDK as a control error rather than a reason |
 | `ClaudeConversation.can_use_tool` denies a `Refusal` without a confirm | The user cannot approve what the tool would not run as shown |
 | Allow applies only while every block the card shows keeps the text it showed; for a delete, the same blocks under it with the same texts. Where a block sits is not checked | The card shows text, so that is what Allow must still match |

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
-import httpx
+import httpx2
 import pytest
 from conftest import make_config, seed_db
 from fake_engine import FakeEngine
@@ -38,7 +38,7 @@ class Harness:
     template: Db
     flag_on_template: Db
     loop: asyncio.AbstractEventLoop
-    client: httpx.AsyncClient
+    client: httpx2.AsyncClient
     routes: list[APIRoute]
     token: str
     plain_space: bool = False
@@ -52,7 +52,7 @@ class Harness:
         template = self.flag_on_template if plain_space else self.template
         (source or template).backup_to(self.db_path)
 
-    def send(self, method: str, url: str, **kwargs) -> httpx.Response:
+    def send(self, method: str, url: str, **kwargs) -> httpx2.Response:
         request = self.client.build_request(method, url, **kwargs)
         return self.loop.run_until_complete(self.client.send(request))
 
@@ -82,8 +82,8 @@ def open_harness(root: Path, **app_kwargs) -> Generator[Harness]:
     loop = asyncio.new_event_loop()
     token = sign_session(bytes.fromhex(config.session_secret),
                          int(time.time() * 1000))
-    client = httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app),
+    client = httpx2.AsyncClient(
+        transport=httpx2.ASGITransport(app=app),
         base_url="http://testserver", cookies={COOKIE_NAME: token})
     routes = sorted(_api_routes(app.routes), key=lambda r: r.path)
     try:

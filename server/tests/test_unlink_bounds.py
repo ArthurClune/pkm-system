@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-import httpx
+import httpx2
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -208,7 +208,7 @@ def test_a_legacy_delete_reports_the_residual_on_delete_and_preview(
         _forget(seeded_config, SRC)
         _seed(seeded_config, [(SRC, "Src", chain(k))], pages=(LEGACY,))
         _legacy_ref(seeded_config, SRC)
-        got: dict[str, httpx.Response] = {}
+        got: dict[str, httpx2.Response] = {}
 
         def go() -> None:
             got["preview"] = client.get("/api/delete-preview",

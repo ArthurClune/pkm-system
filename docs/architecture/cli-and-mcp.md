@@ -1,6 +1,6 @@
 # CLI and MCP server
 
-`pkm` (CLI) and `pkm-mcp` (FastMCP stdio server) are thin shells over the same
+`pkm` (CLI) and `pkm-mcp` (`MCPServer` stdio server) are thin shells over the same
 HTTP client. They talk to the running server's API, never to SQLite, so they get
 the same validation, conflict handling, journalling and broadcasts as the web
 client. [docs/cli.md](../cli.md) owns the user-facing syntax and output,
@@ -10,7 +10,7 @@ client. [docs/cli.md](../cli.md) owns the user-facing syntax and output,
 |---|---|---|
 | `cli/main.py` | Shell | argparse verbs (`cmd_*`), exit codes |
 | `mcp/tools.py` | Shell | The MCP tool functions and their LLM-facing docstrings |
-| `mcp/server.py` | Shell | `build_server()` registers `TOOLS` on a `FastMCP`, or the subset `--tools` names |
+| `mcp/server.py` | Shell | `build_server()` registers `TOOLS` on an `MCPServer`, or the subset `--tools` names |
 | `client/api.py` | Shell | `PkmClient`: config, session cookie, every HTTP call |
 | `client/core.py` | Core | Config format, cookie header, error-message shaping |
 | `client/workflows.py` | Shell | The write workflows both shells call, so an ordering fix lands once |
@@ -18,8 +18,8 @@ client. [docs/cli.md](../cli.md) owns the user-facing syntax and output,
 | `batch.py` | Core | The `pkm batch` command language on top of `planning.py` |
 | `render.py` | Core | API payloads → terminal markdown with `^uid` markers |
 
-Only `pkm-mcp` calls `build_server()`. Constructing a `FastMCP` configures the
-root logger, and the web server imports the tool signatures for the
+Only `pkm-mcp` calls `build_server()`. Constructing an `MCPServer` configures
+the root logger, and the web server imports the tool signatures for the
 assistant's write preview.
 
 ## The MCP tool surface
@@ -30,6 +30,14 @@ annotated with `^uid` markers that the write tools accept. The assistant's
 ([assistant.md](assistant.md)), so a new tool must join `READ_TOOL_NAMES`
 (`mcp/names.py`, which `READ_TOOLS` reads), `WRITE_TOOLS` or
 `MCP_ONLY_TOOLS` (`test_every_mcp_tool_is_classified` fails otherwise).
+
+`build_server()` registers each tool through `_reported`, which re-raises
+anything the tool raises as a `ToolError` with the same text. `MCPServer`
+shows the model only `Error executing tool <name>` for any other exception,
+and the tools' refusals and the server's rejections are what the model and
+the approval panel read. The tools are plain `def`s, which `MCPServer` runs
+on worker threads, so two calls from one client can run at once: module
+state in `mcp/tools.py` is set before `run()` and only read after.
 
 | Tool | Kind | Does |
 |---|---|---|
@@ -61,7 +69,7 @@ longer one keeps whole items in payload order and clips each item's text at
 `OUTLINE_TEXT_CHARS`. It opens with a `(Partial list: ...)` note saying it is
 partial and how to fetch the rest. The CLI keeps the unbounded renderers.
 
-Every tool in `READ_TOOL_NAMES` returns plain text rather than FastMCP's
+Every tool in `READ_TOOL_NAMES` returns plain text rather than `MCPServer`'s
 `{"result": ...}` structured content (`structured_output=False`), whose JSON
 escaping would make the result Claude Code measures longer than the budget.
 Claude Code saves a result over 50,000 characters to a file, so each of them

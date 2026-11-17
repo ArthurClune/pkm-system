@@ -3,8 +3,8 @@
 
 The card is the only thing between a prompt-injected model and a write
 to the user's notes, so it previews what the tool will receive, not what
-the model sent: each write tool's own FastMCP argument model parses the
-input first (FastMCP JSON-decodes every non-`str` argument, so
+the model sent: each write tool's own MCPServer argument model parses the
+input first (MCPServer JSON-decodes every non-`str` argument, so
 `page: "null"` arrives as None and `allow_merge: "yes"` as True), and a
 batch's commands go through the same schema `apply_batch` applies. Input
 neither accepts is refused rather than previewed, and so is a key the
@@ -37,8 +37,8 @@ from the shell's read to the tool and never through the browser or the
 model.
 
 The tool functions come from `pkm.mcp.tools`, never `pkm.mcp.server`:
-constructing the server's `FastMCP` configures the root logger and reads
-`FASTMCP_*` settings, and the web server imports this module."""
+constructing the server's `MCPServer` configures the root logger, and the
+web server imports this module."""
 from __future__ import annotations
 
 import copy
@@ -48,7 +48,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from mcp.server.fastmcp.utilities.func_metadata import (FuncMetadata,
+from mcp.server.mcpserver.utilities.func_metadata import (FuncMetadata,
                                                         func_metadata)
 from pydantic import ValidationError
 
@@ -506,7 +506,7 @@ def _first_error(exc: ValidationError) -> str:
 def _unknown_key(meta: FuncMetadata, tool_input: Mapping[str, object]
                  ) -> str | None:
     """The first key of `tool_input` the argument model neither names nor
-    aliases. FastMCP's model ignores such a key, so the tool never sees
+    aliases. MCPServer's model ignores such a key, so the tool never sees
     it."""
     declared = {name for name in meta.arg_model.model_fields}
     declared |= {f.alias for f in meta.arg_model.model_fields.values()

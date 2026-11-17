@@ -4,9 +4,9 @@ workflows in `pkm.client.workflows`, and the pure renderers. The only
 thing this file owns is how a result is phrased for an LLM, and the tool
 docstrings, which are the LLM-facing contracts.
 
-`pkm.mcp.server` registers these on a `FastMCP`. They live apart from it
-because constructing a `FastMCP` configures the root logger and reads
-`FASTMCP_*` settings, and the web server imports these signatures (the
+`pkm.mcp.server` registers these on an `MCPServer`. They live apart from it
+because constructing an `MCPServer` configures the root logger, and the
+web server imports these signatures (the
 assistant's write preview) without running an MCP server."""
 from __future__ import annotations
 

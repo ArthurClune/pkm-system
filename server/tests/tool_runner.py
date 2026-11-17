@@ -2,9 +2,9 @@
 """Run a PKM MCP tool as the `pkm-mcp` subprocess runs it, with the input
 the Agent SDK would hand that subprocess after an Allow.
 
-`run_tool` goes through FastMCP's own argument path (its JSON pre-parse,
+`run_tool` goes through MCPServer's own argument path (its JSON pre-parse,
 then the argument model built from the tool's signature) without building
-a `FastMCP`: constructing one reconfigures the root logger, which the e2e
+an `MCPServer`: constructing one reconfigures the root logger, which the e2e
 server has already handed to uvicorn."""
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ import asyncio
 from collections.abc import Mapping
 
 from claude_agent_sdk import PermissionResultAllow
-from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 
 import pkm.mcp.tools
 
 
 def run_tool(short: str, tool_input: Mapping[str, object]) -> str:
     """The text tool `short` returns for `tool_input`. Its errors raise,
-    as they would inside the subprocess before FastMCP reports them."""
+    as they would inside the subprocess before MCPServer reports them."""
     fn = getattr(pkm.mcp.tools, short)
     result = asyncio.run(func_metadata(fn).call_fn_with_arg_validation(
         fn, False, dict(tool_input), None))

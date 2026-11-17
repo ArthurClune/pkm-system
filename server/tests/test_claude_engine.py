@@ -424,7 +424,7 @@ def test_assistant_mcp_server_refuses_a_guarded_write_without_expect(
     finally:
         asyncio.run(conv.close())
     for name, result in zip(("update_block", "batch"), results):
-        assert result.isError
+        assert result.is_error
         text = " ".join(getattr(c, "text", "") for c in result.content)
         assert f"{name}: no expect argument" in text
 

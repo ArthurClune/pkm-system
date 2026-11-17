@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-import httpx
+import httpx2
 import pytest
 from fastapi import FastAPI
 from conftest import TEST_PASSWORD, make_config, seed_db
@@ -259,14 +259,14 @@ class Rig:
         self.app.state.config = replace(self.config, db_path=db_path)
 
     def request(self, db_path: Path, method: str, url: str,
-                body: object = None) -> httpx.Response:
+                body: object = None) -> httpx2.Response:
         """One request through the ASGI app, decoding the path once as
         uvicorn does (TestClient decodes it twice)."""
         self.use(db_path)
 
-        async def go() -> httpx.Response:
-            transport = httpx.ASGITransport(app=self.app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver",
+        async def go() -> httpx2.Response:
+            transport = httpx2.ASGITransport(app=self.app)
+            async with httpx2.AsyncClient(transport=transport, base_url="http://testserver",
                                          cookies={"pkm_session": self.cookie}) as c:
                 return await c.request(method, url, json=body)
         return asyncio.run(go())
@@ -349,7 +349,7 @@ def unclocked(value: object) -> object:
     return value
 
 
-def outcome(r: httpx.Response) -> tuple[int, object]:
+def outcome(r: httpx2.Response) -> tuple[int, object]:
     try:
         body: object = unclocked(r.json())
     except ValueError:

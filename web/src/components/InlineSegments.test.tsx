@@ -191,7 +191,7 @@ it("shift-click calls the sidebar callback instead of navigating", () => {
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole("link", { name: "Paper" }), { shiftKey: true });
-  expect(openInSidebar).toHaveBeenCalledWith("Paper");
+  expect(openInSidebar).toHaveBeenCalledWith("Paper", undefined, undefined);
 });
 
 it("renders {{[[pdf]]: …}} asset macros as the PDF viewer with a decoded label", async () => {

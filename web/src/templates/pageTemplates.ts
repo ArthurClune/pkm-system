@@ -1,8 +1,9 @@
 // pattern: Functional Core
-// Page templates: the blocks "Click to start writing…" seeds on an empty
-// page whose title sits under a template's namespace. Each markdown file in
-// this directory is one template, named for its namespace (`Paper.md` for
-// `Paper/…` titles), with one `- text` line per top-level block.
+// Page templates: the blocks an empty page whose title sits under a
+// template's namespace starts with (docs/architecture/frontend-editor.md
+// § Page templates says when). Each markdown file in this directory is one
+// template, named for its namespace (`Paper.md` for `Paper/…` titles), with
+// one `- text` line per top-level block.
 import type { CanonicalTitle, RawTitle } from "../api/brands";
 
 /** Namespace -> the block texts its template seeds, in order. */

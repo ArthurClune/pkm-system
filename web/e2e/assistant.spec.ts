@@ -1,6 +1,7 @@
 import { type Locator, type Page } from "@playwright/test";
 import type { BlockUid, RawTitle } from "../src/api/brands";
 import type { PagePayload } from "../src/api/payloads";
+import type { components } from "../src/api/types";
 import { rawTitleOf, uidOf } from "../src/test-mint";
 import { expect, test } from "./fixtures";
 import { waitForServerText } from "./server-state";
@@ -197,16 +198,21 @@ test("pagehide closes the live conversation via sendBeacon", async ({ page }) =>
   await login(page);
   await page.keyboard.press("Control+j");
   const panel = page.getByRole("region", { name: "Assistant" });
+  const created = page.waitForResponse((res) => res.request().method() === "POST"
+    && new URL(res.url()).pathname === "/api/assistant/conversations");
   await askInput(panel).fill("hello");
   await askInput(panel).press("Enter");
+  const { id } = await serverJson<components["schemas"]["AssistantConversation"]>(
+    await created);
   await expect(panel.getByText("echo: hello")).toBeVisible();
+  const stop = async () =>
+    (await page.request.post(`/api/assistant/conversations/${id}/stop`)).status();
+  expect(await stop()).toBe(200);
 
-  const beacon = page.waitForRequest(
-    (req) => req.method() === "POST" && /\/api\/assistant\/conversations\/[0-9a-f]+$/.test(req.url()),
-    { timeout: 5000 },
-  );
   await page.goto("about:blank"); // fires `pagehide` on the outgoing document
-  await beacon;
+  // Chromium does not report a beacon sent from pagehide as a request event,
+  // so the server's answer is the check: the closed conversation is unknown.
+  await expect.poll(stop).toBe(404);
 });
 
 // FakeEngine's "please update <uid>" builds its card with the real preview

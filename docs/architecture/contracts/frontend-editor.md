@@ -156,6 +156,7 @@ is not a change. Reset and Save show only while it is dirty.
 | a cell written, no rows held | unchanged | unchanged | the rows on screen, in order | an edited row must neither move nor vanish under the reader |
 | a cell written, rows held | unchanged | unchanged | unchanged | the first edit's rows stay |
 | Reset | unchanged | the saved view | released | |
+| Refresh's records landed | unchanged | unchanged | released | the reader asked for what the query matches now |
 | Save, written | the live view | unchanged | unchanged | |
 | a refetch, the view dirty | the macro's options | unchanged | unchanged | a refetch must not lose the reader's changes |
 | a refetch, the view clean | the macro's options | the macro's options | unchanged | a Save on another device must not leave this one offering Reset |

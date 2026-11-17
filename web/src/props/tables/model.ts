@@ -45,7 +45,7 @@ function clicked(sort: ViewFields["sort"], col: string): ViewFields["sort"] {
 
 /** Steps after which the rows follow the live view again. */
 export const RELEASES: ReadonlySet<ViewStep["kind"]> = new Set([
-  "filter", "sortClick", "view", "columns", "reset", "remount",
+  "filter", "sortClick", "view", "columns", "reset", "release", "remount",
 ]);
 
 export function modelStep(m: ViewModel, step: ViewStep): ViewModel {
@@ -61,6 +61,8 @@ export function modelStep(m: ViewModel, step: ViewStep): ViewModel {
     case "reset":
     case "remount":
       return { ...m, live: m.saved };
+    case "release":
+      return m;
     case "saved":
       return { ...m, saved: m.live };
     case "loaded":

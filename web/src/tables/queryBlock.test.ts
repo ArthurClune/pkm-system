@@ -189,6 +189,7 @@ describe("a refresh", () => {
     const s = run(frozen(), refresh("L0"), landed("L0", table("b")));
     expect(s.qv?.view.frozen).toEqual(["a", "b"]);
     expect(s.refreshFrom).toBe("L0");
+    expect(shown(s)?.rows.map((r) => r.record.key)).toContain("a");
   });
 
   it("holds through a failure, and the next landing releases", () => {
@@ -207,12 +208,37 @@ describe("a refresh", () => {
     expect(run(s, landed("L1", table("b"))).qv?.view.frozen).toBeNull();
   });
 
-  it("keeps the live view's unsaved filter", () => {
+  it("keeps the live view's unsaved filter and sort", () => {
     const filter: QueryBlockEvent = {
       kind: "view", event: { kind: "filter", text: "a" } };
-    const s = run(frozen(filter), refresh("L0"), landed("L1", table("b")));
+    const sort: QueryBlockEvent = {
+      kind: "view", event: { kind: "sortClick", col: "author" } };
+    const s = run(frozen(filter, sort), refresh("L0"),
+                  landed("L1", table("b")));
     expect(s.qv?.view.live.filter).toBe("a");
+    expect(s.qv?.view.live.sort).toEqual({ col: "author", dir: "asc" });
     expect(s.qv?.view.frozen).toBeNull();
+  });
+
+  const edit = (s: QueryBlockState): QueryBlockEvent => {
+    const now = shown(s);
+    if (now === null || s.loaded === null) throw new Error("not loaded");
+    return { kind: "view", event: editedEvent(now, s.loaded.keys) };
+  };
+
+  it("an edit that freezes rows after the click cancels the release", () => {
+    let s = run(start(), landed("L0", table("a", "b")), refresh("L0"));
+    s = run(s, edit(s));
+    expect(s.refreshFrom).toBeNull();
+    s = run(s, landed("L1", table("b")));
+    expect(s.qv?.view.frozen).toEqual(["a", "b"]);
+  });
+
+  it("an edit while rows are already held keeps the refresh pending", () => {
+    let s = run(frozen(), refresh("L0"));
+    s = run(s, edit(s));
+    expect(s.refreshFrom).toBe("L0");
+    expect(run(s, landed("L1", table("b"))).qv?.view.frozen).toBeNull();
   });
 
   it("a landing with no refresh pending still holds", () => {

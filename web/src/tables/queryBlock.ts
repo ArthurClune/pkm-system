@@ -9,6 +9,9 @@
 // A Refresh releases the held rows on the next records landing for a
 // newer load than the one current at the click: the request already out
 // then was sent before the click and may predate the edits it should show.
+// A cell edit that freezes rows while a Refresh is pending cancels it: the
+// records were requested before that edit, and releasing on them would
+// move or drop the row just written.
 //
 // A load is one records request, named by the shell's load key. The
 // records may carry the groups (queryDefaults' blocks case), so a fetch
@@ -148,8 +151,12 @@ export function makeQueryBlock(m: QueryMachine = REAL_QUERY): QueryBlock {
           ? { ...s, groups: e.groups, groupsFor: e.load, groupsError: null } : s;
       case "groupsFailed":
         return s.groupsTried === e.load ? { ...s, groupsError: e.error } : s;
-      case "view":
-        return s.qv === null ? s : { ...s, qv: m.step(s.qv, e.event) };
+      case "view": {
+        if (s.qv === null) return s;
+        const freezes = e.event.kind === "edited" && s.qv.view.frozen === null;
+        return { ...s, qv: m.step(s.qv, e.event),
+                 refreshFrom: freezes ? null : s.refreshFrom };
+      }
       case "refresh":
         return s.refreshFrom !== null ? s : { ...s, refreshFrom: e.load };
       case "patch": {

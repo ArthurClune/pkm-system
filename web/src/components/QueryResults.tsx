@@ -7,7 +7,8 @@
 // started with the records when the macro saves the blocks view (until the
 // reader picks another) and on demand when the reader picks it. Results
 // load on mount, on a resync and on Refresh, never on a cell write; a
-// Refresh asks once this block's cell writes are delivered. Cell
+// Refresh asks once this block's cell writes are delivered, or after
+// REFRESH_WAIT_MS. Cell
 // writes and Save need the host block's edit access and a connection:
 // queries are online-only. While a cell edit holds the rows in place, a
 // refetch that drops a held row's record keeps showing the record it last
@@ -54,6 +55,10 @@ const VIEWS: { view: MacroView; label: string }[] = [
   { view: "table", label: "Table" },
   { view: "cards", label: "Cards" },
 ];
+
+// A delivery can stay out while connected (POSTs on backoff, a replica gone
+// for good), and a possibly stale answer beats a Refresh that does nothing.
+export const REFRESH_WAIT_MS = 2000;
 
 const loadKey = (expr: string, generation: number): string =>
   `${expr}\u0000${generation}`;
@@ -149,13 +154,31 @@ export function QueryResults({ expr, options, depth }: QueryResultsProps) {
   }, []);
 
   // Offline the fetch fails at once with the offline error, so there is
-  // nothing to wait for.
+  // nothing to wait for. A write made during the wait is waited for too.
   const refresh = () => {
     dispatch({ kind: "refresh", load });
-    const bump = () => { if (mounted.current) setGeneration((g) => g + 1); };
-    const writing = status === "connected" ? writes.settled() : null;
-    if (writing === null) bump();
-    else void writing.then(bump);
+    let done = false;
+    const bump = () => {
+      if (done) return;
+      done = true;
+      if (mounted.current) setGeneration((g) => g + 1);
+    };
+    if (status !== "connected") {
+      bump();
+      return;
+    }
+    const timer = setTimeout(bump, REFRESH_WAIT_MS);
+    const wait = () => {
+      if (done) return;
+      const writing = writes.settled();
+      if (writing !== null) {
+        void writing.then(wait);
+        return;
+      }
+      clearTimeout(timer);
+      bump();
+    };
+    wait();
   };
 
   const header = (

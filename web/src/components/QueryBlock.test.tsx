@@ -19,6 +19,7 @@ import type { DeliveryOutcome } from "../sync/opQueue";
 import { SyncContext } from "../sync/SyncProvider";
 import { InlineSegments } from "./InlineSegments";
 import { QueryBlock } from "./QueryBlock";
+import { REFRESH_WAIT_MS } from "./QueryResults";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -1339,6 +1340,45 @@ describe("refresh", () => {
     pressRefresh();
     await vi.waitFor(() =>
       expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2));
+  });
+
+  it("Refresh fetches anyway once a delivery outlasts the wait",
+     async () => {
+    const sync = makeSync();
+    const { mock } = serveDeliveries(sync);
+    renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    vi.useFakeTimers();
+    pressRefresh();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(REFRESH_WAIT_MS - 1);
+    });
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2);
+  });
+
+  it("Refresh waits for a write made while it waits", async () => {
+    const sync = makeSync();
+    const { mock, delivery, deliver } = serveDeliveries(sync);
+    renderBlock(`{{query: ${BOOK}}}`, { sync });
+    await screen.findByRole("table");
+    await write("Book/Alpha", "Reading Status", "Unread");
+    pressRefresh();
+    const later = defer<DeliveryOutcome>();
+    const enqueue = sync.enqueue;
+    sync.enqueue = (ops, scope) => ({ ...enqueue(ops, scope),
+                                      delivered: later.promise });
+    await write("Book/Alpha", "Author", "Xavier Q");
+    await deliver(() => delivery.resolve({ status: "delivered" }));
+    await settle();
+    expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(1);
+    await act(async () => { later.resolve({ status: "delivered" }); });
+    await vi.waitFor(() =>
+      expect(fetched(mock, recordsUrl(BOOK_ENC))).toBe(2));
+    await settle();
+    expect(cellOf("Book/Alpha", "Author")).toHaveTextContent("Xavier Q");
   });
 
   it("Refresh after unmount fetches nothing", async () => {

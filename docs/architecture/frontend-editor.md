@@ -477,10 +477,13 @@ a held row keeps showing its last record, stale (`holdRecords`). Otherwise
 an edit that took a row out of the query would drop it, and commit any
 draft open in it, on the next resync.
 A cell edit never refetches. Refresh asks for its records only once the
-block's cell writes are delivered (`settled` in `useCellWrites`). The
-click's own mousedown commits an open cell, and records requested before
-that write reaches the server would show the cell's old value. The
-contract's rows say when an edit cancels a pending Refresh.
+block's cell writes are delivered (`settled` in `useCellWrites`), including
+writes made while it waits. The click's own mousedown commits an open cell,
+and records requested before that write reaches the server would show the
+cell's old value. The wait ends after `REFRESH_WAIT_MS` regardless: a
+delivery can stay out while connected, as when POSTs retry on backoff, and
+a possibly stale answer beats a Refresh that does nothing. The contract's
+rows say when an edit cancels a pending Refresh.
 A query block also holds what the first edit saw (`stepQueryView`): a view
 or column list the macro leaves to the data's defaults stays as it was
 then (`showQuery`). A refetch can move those defaults: records that no

@@ -6,6 +6,10 @@
 // dispatches what they answer; the query view property drives the same
 // step function.
 //
+// A Refresh releases the held rows on the next records landing for a
+// newer load than the one current at the click: the request already out
+// then was sent before the click and may predate the edits it should show.
+//
 // A load is one records request, named by the shell's load key. The
 // records may carry the groups (queryDefaults' blocks case), so a fetch
 // waits for them unless the macro saves the blocks view. One /api/query is
@@ -61,6 +65,8 @@ export interface QueryBlockState {
    * fetch for again. Null outside that view, and once records carry the
    * groups, which are as new as any answer still out. */
   groupsTried: string | null;
+  /** The load current when a pending Refresh was clicked; null when none. */
+  refreshFrom: string | null;
 }
 
 export type QueryBlockEvent =
@@ -75,13 +81,17 @@ export type QueryBlockEvent =
   | { kind: "view"; event: QueryViewEvent }
   /** A cell write's record as it leaves it, shown until the next load. */
   | { kind: "patch"; key: string;
-      fn: (r: QueryRecordModel) => QueryRecordModel };
+      fn: (r: QueryRecordModel) => QueryRecordModel }
+  /** The Refresh button; `load` is the shell's load key before it bumps the
+   * generation. */
+  | { kind: "refresh"; load: string };
 
 export function initialQueryBlock(options: MacroOptions): QueryBlockState {
   return {
     options, loaded: null, qv: null, records: [], held: new Map(),
     error: null, recordsFor: null, groups: null, groupsError: null,
     groupsFor: null, groupsTried: null,
+    refreshFrom: null,
   };
 }
 
@@ -116,10 +126,14 @@ export function makeQueryBlock(m: QueryMachine = REAL_QUERY): QueryBlock {
         const p = e.payload;
         const loaded = { keys: p.keys, total: p.total,
                          defaults: queryDefaults(p) };
+        const releasing = s.refreshFrom !== null && e.load !== s.refreshFrom;
+        const resavedQv = resaved(s, s.options, loaded);
         const next: QueryBlockState = {
-          ...s, loaded, qv: resaved(s, s.options, loaded), records: p.records,
-          held: m.hold(s.records, s.held, p.records, s.qv?.view.frozen ?? null),
-          error: null, recordsFor: e.load,
+          ...s, loaded, records: p.records, error: null, recordsFor: e.load,
+          qv: releasing ? m.step(resavedQv, { kind: "release" }) : resavedQv,
+          held: m.hold(s.records, s.held, p.records,
+                       releasing ? null : s.qv?.view.frozen ?? null),
+          refreshFrom: releasing ? null : s.refreshFrom,
         };
         return p.groups === null ? next
           : { ...next, groups: p.groups, groupsFor: e.load, groupsError: null,
@@ -136,6 +150,8 @@ export function makeQueryBlock(m: QueryMachine = REAL_QUERY): QueryBlock {
         return s.groupsTried === e.load ? { ...s, groupsError: e.error } : s;
       case "view":
         return s.qv === null ? s : { ...s, qv: m.step(s.qv, e.event) };
+      case "refresh":
+        return s.refreshFrom !== null ? s : { ...s, refreshFrom: e.load };
       case "patch": {
         const was = s.held.get(e.key);
         return { ...s,

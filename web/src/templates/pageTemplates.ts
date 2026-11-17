@@ -3,7 +3,7 @@
 // page whose title sits under a template's namespace. Each markdown file in
 // this directory is one template, named for its namespace (`Paper.md` for
 // `Paper/…` titles), with one `- text` line per top-level block.
-import type { CanonicalTitle } from "../api/brands";
+import type { CanonicalTitle, RawTitle } from "../api/brands";
 
 /** Namespace -> the block texts its template seeds, in order. */
 export type PageTemplates = ReadonlyMap<string, readonly string[]>;
@@ -41,12 +41,38 @@ export function templatesFromFiles(
   return templates;
 }
 
+/** The block texts of the title's namespace template, or null when it has
+ * none. Matching is exact and case-sensitive. */
+export function templateFor(
+  title: RawTitle, templates: PageTemplates,
+): readonly string[] | null {
+  const slash = title.indexOf("/");
+  return (slash > 0 ? templates.get(title.slice(0, slash)) : undefined) ?? null;
+}
+
 /** The texts of the blocks a fresh page starts with: its namespace's
- * template, else one empty block. Matching is exact and case-sensitive. */
+ * template, else one empty block. */
 export function firstBlockTexts(
   title: CanonicalTitle, templates: PageTemplates,
 ): readonly string[] {
-  const slash = title.indexOf("/");
-  const texts = slash > 0 ? templates.get(title.slice(0, slash)) : undefined;
-  return texts ?? [""];
+  return templateFor(title, templates) ?? [""];
+}
+
+/** What search create and a followed link attach to the navigation (router
+ * state, or a sidebar entry) so the page seeds its template on arrival. */
+export type SeedTemplateState = { readonly seedTemplate: true };
+
+/** The marker for a navigation to `title`: only a title with a template gets
+ * one, so other navigations carry no state and need no consuming. */
+export function seedTemplateState(
+  title: RawTitle, templates: PageTemplates,
+): SeedTemplateState | undefined {
+  return templateFor(title, templates) ? { seedTemplate: true } : undefined;
+}
+
+/** Whether router state (typed `unknown` by react-router) carries the
+ * marker. */
+export function wantsTemplateSeed(state: unknown): boolean {
+  return typeof state === "object" && state !== null
+    && "seedTemplate" in state && state.seedTemplate === true;
 }

@@ -24,6 +24,7 @@ import { TITLE_SYNTAX_NOTICE } from "../replica/titles";
 import { resetHistory } from "../outline/undoManager";
 import { droppedDrafts, resetDroppedDrafts } from "../outline/droppedDrafts";
 import { DroppedDraftNotice } from "../components/DroppedDraftNotice";
+import type { BlockOp } from "../api/ops";
 import { EditablePage } from "./EditablePage";
 
 // The last test's unmount drops a refused draft into module state.
@@ -45,6 +46,26 @@ function mount(sync = makeSync(), initial = [
       </SyncContext.Provider>
     </MemoryRouter>);
   return sync;
+}
+
+function seedView(sync: SyncFake, initial: ReturnType<typeof block>[],
+                  titleText: string, onHandled: () => void) {
+  return (
+    <MemoryRouter>
+      <SyncContext.Provider value={sync}>
+        <EditablePage title={canonicalTitleOf(titleText)} initial={initial}
+                      seedTemplate onSeedTemplateHandled={onHandled} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+}
+
+const PAPER_SEEDS = [["Tags:: #Paper", 0, null, "Paper/X"],
+  ["URL:: ", 1, null, "Paper/X"], ["Date:: ", 2, null, "Paper/X"],
+  ["Local copy:: ", 3, null, "Paper/X"]];
+
+function createRows(ops: readonly BlockOp[]) {
+  return ops.map((o) => o.op === "create" && [
+    o.text, o.order_idx, o.parent_uid, o.page_title]);
 }
 
 function focusBlock(text: string): HTMLTextAreaElement {
@@ -1594,4 +1615,51 @@ test("typing that nests links past the cap shows the notice, saves nothing",
 
   fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
   expect(screen.queryByText(LINK_NESTING_NOTICE)).toBeNull();
+});
+
+test("seedTemplate on an empty Paper/ page seeds the template once", () => {
+  const sync = makeSync();
+  const onHandled = vi.fn();
+  const { rerender } = render(seedView(sync, [], "Paper/X", onHandled));
+  expect(sync.sent).toHaveLength(1);
+  expect(createRows(sync.sent[0])).toEqual(PAPER_SEEDS);
+  const ta = textbox();
+  expect(ta.value).toBe("Tags:: #Paper");
+  expect(ta.selectionStart).toBe("Tags:: #Paper".length);
+  expect(onHandled).toHaveBeenCalledTimes(1);
+  rerender(seedView(sync, [], "Paper/X", onHandled));
+  expect(sync.sent).toHaveLength(1);
+  expect(onHandled).toHaveBeenCalledTimes(1);
+});
+
+test("seedTemplate on a page with blocks writes nothing", () => {
+  const sync = makeSync();
+  const onHandled = vi.fn();
+  render(seedView(sync, [block("tuid-u1", "notes", { order_idx: orderIdxOf(0) })],
+                  "Paper/X", onHandled));
+  expect(sync.sent).toHaveLength(0);
+  expect(onHandled).toHaveBeenCalledTimes(1);
+});
+
+test("seedTemplate on a title without a template writes nothing", () => {
+  const sync = makeSync();
+  const onHandled = vi.fn();
+  render(seedView(sync, [], "Page", onHandled));
+  expect(sync.sent).toHaveLength(0);
+  expect(screen.getByRole("button", { name: /start writing/i }))
+    .toBeInTheDocument();
+  expect(onHandled).toHaveBeenCalledTimes(1);
+});
+
+test("seedTemplate waits for an editable outline", () => {
+  const offline = makeSync("connecting");
+  const onHandled = vi.fn();
+  const { rerender } = render(seedView(offline, [], "Paper/X", onHandled));
+  expect(offline.sent).toHaveLength(0);
+  expect(onHandled).not.toHaveBeenCalled();
+  const online = makeSync();
+  rerender(seedView(online, [], "Paper/X", onHandled));
+  expect(online.sent).toHaveLength(1);
+  expect(createRows(online.sent[0])).toEqual(PAPER_SEEDS);
+  expect(onHandled).toHaveBeenCalledTimes(1);
 });

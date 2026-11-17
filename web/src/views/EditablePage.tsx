@@ -12,6 +12,8 @@ import { findNode, hidingAncestors } from "../outline/tree";
 import { useConfirm } from "../components/ConfirmDialog";
 import { DismissibleNotice } from "../components/DismissibleNotice";
 import { useOutline } from "../outline/useOutline";
+import { PAGE_TEMPLATES } from "../templates/load";
+import { templateFor } from "../templates/pageTemplates";
 
 /** One editable outline (a page body or a journal day).
  *
@@ -23,7 +25,8 @@ import { useOutline } from "../outline/useOutline";
  * first, and the two would silently diverge. A per-title session shares each
  * flushed tree and grants exactly one editor lease after commit. */
 export function EditablePage({ title, initial, stamps = false, refCounts, reveal,
-                              revealNavigation, onRevealed }: {
+                              revealNavigation, onRevealed, seedTemplate = false,
+                              onSeedTemplateHandled }: {
   title: CanonicalTitle;
   initial: BlockNode[];
   /** Show the last-changed margin column. Only the main-pane
@@ -41,6 +44,13 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   reveal?: BlockUid | null;
   revealNavigation?: unknown;
   onRevealed?: () => void;
+  /** Search create or a followed link opened this page: once the outline is
+   * editable, an empty page with a template seeds it, as the start-writing
+   * click does. `onSeedTemplateHandled` then fires, seeded or not, so the
+   * host drops the marker and no later mount (reload, back, a re-shown
+   * sidebar) seeds again. */
+  seedTemplate?: boolean;
+  onSeedTemplateHandled?: () => void;
 }) {
   const ownerRef = useRef(Symbol(`editor:${title}`));
   // useOutline acquires and claims in one layout effect. That keeps render
@@ -85,6 +95,18 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   // `process` (dep `getBlocks`) on every render, making that memoization
   // inert even though the ref read below is always current regardless.
   const getBlocks = useCallback(() => blocksRef.current, []);
+  const seededRef = useRef(false);
+  const createFirstBlock = outline.createFirstBlock;
+  useEffect(() => {
+    if (!seedTemplate || !canReveal || seededRef.current) return;
+    seededRef.current = true;
+    if (blocksRef.current.length === 0
+        && templateFor(title, PAGE_TEMPLATES) !== null) {
+      createFirstBlock();
+    }
+    onSeedTemplateHandled?.();
+  }, [seedTemplate, canReveal, title, createFirstBlock, onSeedTemplateHandled]);
+
   const uploadOutlineFiles = outline.onDropFiles;
   const onDropFiles = useCallback((files: File[], target: DropTarget) => {
     void uploadOutlineFiles(files, target);

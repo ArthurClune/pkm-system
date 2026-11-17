@@ -175,15 +175,16 @@ describe("tokenizeBlock", () => {
   it("grabs query expressions with a balanced-brace scan", () => {
     expect(tokenizeBlock("{{[[query]]: {and: [[Paper]] [[Link]]}}}")).toEqual([
       { kind: "query", expr: "{and: [[Paper]] [[Link]]}", options: {},
-        span: [0, 40] },
+        span: [0, 40], source: "{{[[query]]: {and: [[Paper]] [[Link]]}}}" },
     ]);
     expect(tokenizeBlock("{{query: {and: [[A]] {or: [[B]] [[C]]}}}}")).toEqual([
       { kind: "query", expr: "{and: [[A]] {or: [[B]] [[C]]}}", options: {},
-        span: [0, 41] },
+        span: [0, 41], source: "{{query: {and: [[A]] {or: [[B]] [[C]]}}}}" },
     ]);
     expect(tokenizeBlock("before {{[[query]]: {and: [[A]]}}} after")).toEqual([
       { kind: "text", text: "before " },
-      { kind: "query", expr: "{and: [[A]]}", options: {}, span: [7, 34] },
+      { kind: "query", expr: "{and: [[A]]}", options: {}, span: [7, 34],
+        source: "{{[[query]]: {and: [[A]]}}}" },
       { kind: "text", text: " after" },
     ]);
   });
@@ -192,7 +193,8 @@ describe("tokenizeBlock", () => {
     const text = "{{query: {and: [[A]]} | sort: X asc}}";
     expect(tokenizeBlock(text)).toStrictEqual([
       { kind: "query", expr: "{and: [[A]]}",
-        options: { sort: { col: "X", dir: "asc" } }, span: [0, text.length] },
+        options: { sort: { col: "X", dir: "asc" } }, span: [0, text.length],
+        source: text },
     ]);
   });
 
@@ -200,7 +202,7 @@ describe("tokenizeBlock", () => {
     const text = "{{[[query]]: {and: [[A | B]]} | view: cards}} x";
     expect(tokenizeBlock(text)[0]).toStrictEqual(
       { kind: "query", expr: "{and: [[A | B]]}", options: { view: "cards" },
-        span: [0, text.length - 2] });
+        span: [0, text.length - 2], source: text.slice(0, -2) });
   });
 
   it("preserves newlines as line breaks outside code fences", () => {
@@ -559,7 +561,8 @@ describe("tokenizeBlock on long runs of math and macro openers", () => {
 
   it("closes a query at the brace matching its opener", () => {
     expect(tokenizeBlock("{{query: {and: [[a]] {x}}}} tail")).toEqual([
-      { kind: "query", expr: "{and: [[a]] {x}}", options: {}, span: [0, 27] },
+      { kind: "query", expr: "{and: [[a]] {x}}", options: {}, span: [0, 27],
+        source: "{{query: {and: [[a]] {x}}}}" },
       { kind: "text", text: " tail" },
     ]);
   });

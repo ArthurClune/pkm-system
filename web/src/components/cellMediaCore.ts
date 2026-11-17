@@ -7,7 +7,6 @@
 // exactly when the outline would render it as an embed.
 import type { BlockUid, RawTitle } from "../api/brands";
 import type { CellMediaTarget } from "../contexts";
-import { formatMacroOptions } from "../grammar/macroOptionsWrite";
 import type { BlockSegment } from "../grammar/tokenize";
 import { isBlueskyPostUrl } from "./bluesky";
 import { isPdfHref, pdfLabelFromHref } from "./externalMedia";
@@ -62,10 +61,8 @@ export function cellMedia(
       return seg.lang === "mermaid"
         ? line("Mermaid diagram", { kind: "code", lang: null, code: seg.code })
         : line("Code block", { kind: "code", lang: seg.lang, code: seg.code });
-    case "query": {
-      const text = `{{query: ${seg.expr}${formatMacroOptions(seg.options)}}}`;
-      return line("Query", { kind: "source", text });
-    }
+    case "query":
+      return line("Query", { kind: "source", text: seg.source });
     default:
       return null;
   }

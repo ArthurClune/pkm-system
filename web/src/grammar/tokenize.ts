@@ -37,9 +37,10 @@ export type BlockSegment =
   | { kind: "todo"; done: boolean }
   | { kind: "code-block"; lang: string | null; code: string }
   // `expr` is the query without its options; `span` is the whole
-  // `{{...}}` in the block text, for rewriteMacroOptions.
+  // `{{...}}` in the block text, for rewriteMacroOptions; `source` is that
+  // text, which a plain-table cell shows (cellMediaCore.ts).
   | { kind: "query"; expr: string; options: MacroOptions;
-      span: [number, number] }
+      span: [number, number]; source: string }
   | { kind: "pdf-embed"; href: string };
 
 const QUERY_PREFIX = new RegExp(String.raw`^\{\{` + QUERY_OPENER.source.slice(1));
@@ -411,7 +412,8 @@ function tokenizeBlockUncached(text: string): BlockSegment[] {
       if (q) {
         flush(i);
         const { head, options } = splitMacroOptions(q[0]);
-        out.push({ kind: "query", expr: head, options, span: [i, q[1]] });
+        out.push({ kind: "query", expr: head, options, span: [i, q[1]],
+                   source: text.slice(i, q[1]) });
         i = q[1];
         chunkStart = i;
         continue;

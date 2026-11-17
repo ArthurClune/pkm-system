@@ -98,11 +98,12 @@ describe("cellMedia in a plain table", () => {
     expect(cellMedia(seg(`[source](${POST})`), PLAIN)).toBeNull();
   });
 
-  it("shows a query as its source, options kept", () => {
+  it("shows a query as its source, as written", () => {
     expect(cellMedia(seg("{{query: {and: [[X]]}}}"), PLAIN))
       .toEqual({ kind: "source", text: "{{query: {and: [[X]]}}}" });
-    expect(cellMedia(seg("{{query: {and: [[X]]} | view: cards}}"), PLAIN))
-      .toEqual({ kind: "source", text: "{{query: {and: [[X]]} | view: cards}}" });
+    const written = "{{[[query]]:  {and: [[X]]} | view: cards}}";
+    expect(cellMedia(seg(written), PLAIN))
+      .toEqual({ kind: "source", text: written });
   });
 
   it("keeps the labels of PDFs and images", () => {

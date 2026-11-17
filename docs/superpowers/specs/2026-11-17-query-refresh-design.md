@@ -62,7 +62,10 @@ a Refresh button in the query block's header.
   pending; `recordsLanded` for a different load releases before
   `holdRecords` runs, so a released view keeps no held records, then
   clears it. `recordsFailed` leaves it pending, so the hold stays and the
-  next successful load releases.
+  next successful load releases. A cell edit that freezes rows while a
+  Refresh is pending cancels it: the refreshed records were requested
+  before that edit, and releasing on them would move the row the reader
+  just wrote under them (controller's call during review).
 - This adds transitions to the query block machine, so the query view
   property (`web/src/props/tables/`) gets a refresh step in its draws and
   model, a reach label with a floor, and a teeth mutant that fails it.

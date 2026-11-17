@@ -5,10 +5,10 @@ status: todo
 type: epic
 priority: low
 created_at: 2026-11-17T20:07:08Z
-updated_at: 2026-11-17T20:07:08Z
+updated_at: 2026-11-17T20:11:31Z
 ---
 
-Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each its own branch. No advisory in the shipped bundle depends on any of them (pnpm audit --prod and pip-audit were clean). mcp 2.x is not here: pkm-cxq5 was scrapped by ruling, to revisit only on a 1.x advisory.
+Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each its own branch. No advisory in the shipped bundle depends on any of them (pnpm audit --prod and pip-audit were clean). mcp 2.x is not here: it went in with the server refresh (pkm-cxq5, reopened).
 
 - [ ] React 18 to 19, with @types/react and @types/react-dom 19, @testing-library/jest-dom 7, react-pdf 11 (its pdfjs-dist pin and the publicHoistPattern in pnpm-workspace.yaml) and react-router 7 to 8. Perf baselines (renders) will move.
 - [ ] vite 6 to 8, with @vitejs/plugin-react 6 and vite-plugin-pwa 2. vite-plugin-pwa 2 is what clears the glob and minimatch advisories that reach the build through workbox-build. Bundle and precache budgets need re-checking.

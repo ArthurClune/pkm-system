@@ -5,7 +5,7 @@ status: todo
 type: epic
 priority: low
 created_at: 2026-11-17T20:07:08Z
-updated_at: 2026-11-17T20:11:31Z
+updated_at: 2026-11-17T21:54:54Z
 ---
 
 Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each its own branch. No advisory in the shipped bundle depends on any of them (pnpm audit --prod and pip-audit were clean). mcp 2.x is not here: it went in with the server refresh (pkm-cxq5, reopened).
@@ -15,7 +15,7 @@ Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each 
 - [ ] TypeScript 5.9 to 7, checking typescript-eslint and the eslint brand rules support it.
 - [ ] mermaid 11 to 12. It is pinned ~11.16.1 so that any bump forces the mermaidSafety mirror re-check against the new mermaid and dompurify.
 - [ ] katex 0.18 to 0.19: re-check that it still refuses links and images. The katex override in pnpm-workspace.yaml must keep one katex install.
-- [ ] jsdom 26 to 31 for the unit suite.
+- [x] jsdom 26 to 31 for the unit suite (pkm-mfj7).
 - [ ] @playwright/test 1.61 to 1.65. It is pinned exactly because 1.65 needs a newer cached browser.
 - [ ] websockets 16 to 17 on the server. It is bounded <17 in server/pyproject.toml: only uvicorn's WS transport uses it, which pytest does not reach, so the check is the Playwright suite plus a live sync session.
 - [ ] picomatch (high, ReDoS, reaching lint through typescript-eslint and tinyglobby) had no patched release on 2026-11-17; take it when one ships.

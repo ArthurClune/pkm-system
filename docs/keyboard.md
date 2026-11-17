@@ -211,9 +211,11 @@ link in a cell follows the link instead. From the keyboard, Tab reaches each
 cell you can edit; press Enter on one to edit it.
 
 A PDF or image in a cell or card shows as a 📄 or 🖼 label: click it to open
-it full screen, and Escape takes you back to the table as you left it. Other
-embeds (a diagram, code, a Bluesky post, a query) show as a ↗ label that goes
-to the line holding them; Shift-click opens that line in the sidebar.
+it full screen, and Escape takes you back to the table as you left it. In a
+query's table or cards, other embeds (a diagram, code, a Bluesky post, a
+query) show as a ↗ label that goes to the line holding them; Shift-click
+opens that line in the sidebar. In a plain table they show in the cell: code
+as code, a diagram or query as its source, a Bluesky post as a link.
 
 | Shortcut | Action |
 |---|---|

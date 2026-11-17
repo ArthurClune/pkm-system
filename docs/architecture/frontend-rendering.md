@@ -112,13 +112,14 @@ would be the cell itself, so a plain table renders that media in place
 instead of a label that leads back to where it sits.
 
 The label is a button that stops its click: the `<td>` opens the cell editor
-on any click that reaches it, and on a code block in a plain cell it does.
+on any click that reaches it, including one on a code block in a plain
+cell.
 `RoamTable`'s `StaticTable`, shown until the tables chunk loads, provides the
 same context and `data-cell-uid`, so the swap to `PlainTable` neither fetches
 media nor misses a jump. In overlay mode `PdfEmbed` renders nothing in place
 while the viewer chunk loads, and a failed chunk calls `onError`, so the
 label reads "(unavailable)" instead of the cell growing a link. A jump to a
-plain-table cell, from a query cell's label or a search hit, finds the
+plain-table cell, from a link or ref to its uid or a search hit, finds the
 `data-cell-uid` that `DataTable`'s `cellAnchor` writes on the `<td>`. It
 never uses `data-uid`, which `useOutline`, `useDropZone` and `FindBar` read
 as a block row. Row titles (`RecordLink`) keep media inert instead, under

@@ -1,8 +1,9 @@
 // pattern: Imperative Shell
 // The query view property's teeth: wrong versions of stepQueryView,
 // showQuery and holdRecords, built into a query block by makeQueryBlock,
-// and wrong versions of the block's own fetch rules, each of which the
-// property must catch, by a report naming the invariant the mutant breaks.
+// and wrong versions of the block's own fetch and Refresh rules, each of
+// which the property must catch, by a report naming the invariant the
+// mutant breaks.
 // A mutant that survives means the property cannot see that bug.
 import {
   makeQueryBlock, QUERY_BLOCK, REAL_QUERY, type QueryBlock, type QueryMachine,
@@ -112,6 +113,27 @@ const MUTANTS: Record<string, Mutant> = {
     step: (s, e) => e.kind === "groupsLanded"
       ? { ...s, groups: e.groups, groupsFor: e.load, groupsError: null }
       : QUERY_BLOCK.step(s, e),
+  },
+  "refresh releases at the click": {
+    catches: ["frozen"], ...QUERY_BLOCK,
+    step: (s, e) => {
+      const next = QUERY_BLOCK.step(s, e);
+      return e.kind === "refresh"
+        ? QUERY_BLOCK.step(next, { kind: "view", event: { kind: "release" } })
+        : next;
+    },
+  },
+  "refresh never releases": {
+    catches: ["frozen", "hold-rows"], ...QUERY_BLOCK,
+    step: (s, e) => e.kind === "refresh" ? s : QUERY_BLOCK.step(s, e),
+  },
+  "an edit after the click does not cancel the refresh": {
+    catches: ["frozen", "hold-rows"], ...QUERY_BLOCK,
+    step: (s, e) => {
+      const next = QUERY_BLOCK.step(s, e);
+      return e.kind === "view" && e.event.kind === "edited"
+        ? { ...next, refreshFrom: s.refreshFrom } : next;
+    },
   },
   "leaving the blocks view keeps the fetch tried": {
     catches: ["stall"], ...QUERY_BLOCK,

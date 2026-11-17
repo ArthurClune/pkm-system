@@ -2,7 +2,8 @@
 // What the query view property draws: the macro's options, a first records
 // answer, and the steps one mounted query block sees: the reader's view
 // changes, Reset and Save, cell edits, refetches and edits of the macro,
-// and resyncs whose records and /api/query answers land or fail later.
+// Refresh clicks, and resyncs whose records and /api/query answers land or
+// fail later.
 // A record holds a drawn subset of the attribute keys, so a refetch often
 // drops a key the last answer had, and now and then holds no `::` line at
 // all, which makes blocks the default. A key differs from its label, as a
@@ -84,7 +85,8 @@ export const optionsArb: fc.Arbitrary<MacroOptions> = fc.oneof(
 );
 
 export type QueryStep =
-  | Exclude<ViewEvent, { kind: "edited" } | { kind: "loaded" }>
+  | Exclude<ViewEvent,
+            { kind: "edited" } | { kind: "loaded" } | { kind: "release" }>
   /** A cell write: the run steps the view with what is on screen. */
   | { kind: "edit" }
   /** A refetch with this answer. */
@@ -93,6 +95,9 @@ export type QueryStep =
   | { kind: "macro"; options: MacroOptions }
   /** A resync whose records answer is still out. */
   | { kind: "resync" }
+  /** The Refresh button: a resync that releases the held rows once its
+   * records land. */
+  | { kind: "refresh" }
   /** The records answer still out lands, or fails when null. */
   | { kind: "answer"; payload: QueryRecordsPayload | null }
   /** The /api/query answer still out lands, or fails. */
@@ -117,6 +122,7 @@ export const queryStepArb: fc.Arbitrary<QueryStep> = fc.oneof(
   { weight: 1, arbitrary: fc.constantFrom("cards", "blocks").map((view) =>
       ({ kind: "macro" as const, options: { view } })) },
   { weight: 2, arbitrary: fc.constant({ kind: "resync" as const }) },
+  { weight: 2, arbitrary: fc.constant({ kind: "refresh" as const }) },
   // Into and out of the blocks view, which retries a failed fetch.
   { weight: 2, arbitrary: fc.constantFrom("table", "blocks").map((view) =>
       ({ kind: "view" as const, view })) },

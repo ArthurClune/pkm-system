@@ -179,6 +179,10 @@ than the reader's own changes.
 | rows held, a column's key | the key the current key stats give it, else the one the first edit's stats give it, each by label and then as a key; else the label | a held row's cell must read and write its own line |
 | rows held, the rows | the first edit's rows, in order, each from the current records or else from its last record; one the current records lack is stale | an edited row must neither move nor vanish |
 | a second edit while rows are held | what the first edit saw, unchanged | |
+| Refresh clicked, before records requested since the click land | as before the click | rows move once, onto new records, not against the ones on screen |
+| Refresh clicked, then records requested since the click land | as with no rows held | the reader asked for what the query matches now |
+| Refresh clicked, then its records fail | as before the click, and the next records that land release the rows | |
+| Refresh clicked, then a cell written while no rows are held | the rows that edit holds, kept when the next records land | those records were requested before the edit, and would move or drop the row just written |
 
 ## What a query block fetches
 

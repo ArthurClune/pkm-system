@@ -90,9 +90,6 @@ export type CellMediaTarget =
   | { table: "query"; page: RawTitle; uid: BlockUid };
 export const CellMediaContext = createContext<CellMediaTarget | null>(null);
 
-/** The page an editable outline shows; null outside one. */
-export const OutlinePageContext = createContext<RawTitle | null>(null);
-
 /** True under text a third party or the model may have written (assistant
  * replies): media that would fetch on render waits for a click instead. */
 export const UntrustedContentContext = createContext(false);

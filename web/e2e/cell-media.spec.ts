@@ -1,7 +1,7 @@
-// Media in a table cell stays one line: a query table's local-copy PDF
-// (the e2e server seeds Papers/sample.pdf) opens full screen over the table
-// and Escape returns to it as it was, and a plain table's mermaid cell goes
-// to the cell's own line.
+// Media in a table cell: a query table's local-copy PDF (the e2e server
+// seeds Papers/sample.pdf) stays one line, opens full screen over the table
+// and Escape returns to it as it was; a plain table's mermaid cell shows its
+// source in place, and a jump to that cell's line lands on the cell.
 //
 // The query names a tag page that comes into being with the first ref to
 // it; the server refuses to delete a page a query macro names, so the query
@@ -27,7 +27,7 @@ test.afterEach(async ({ page }) => {
   }
 });
 
-test("media in table cells is a label that opens full screen or goes to its line",
+test("query-table media is a label; plain-table code renders in the cell",
      async ({ page, ownPage }) => {
   const stamp = Date.now();
   const tag = `CellMediaE2E${stamp}`;
@@ -89,17 +89,18 @@ test("media in table cells is a label that opens full screen or goes to its line
   await expect(filter).toHaveValue("cell media");
   await expect(page.locator("textarea.cell-editor")).toHaveCount(0);
 
-  // The plain table: the mermaid cell goes to its own line on this page.
+  // The plain table: the mermaid cell shows its source as code, in place.
   const plain = page.locator("table.data-table").filter({ hasText: "flow" });
-  const line = plain.getByRole("button", { name: "↗ Mermaid diagram" });
+  const cell = plain.locator(`td[data-cell-uid="${mermaidUid}"]`);
+  await expect(cell.locator("pre.code-block")).toHaveText("graph TD; A-->B");
   await expect(plain.locator(".mermaid-diagram, svg")).toHaveCount(0);
-  const path = new URL(page.url()).pathname;
-  await line.click();
-  await expect(page).toHaveURL((u) => u.pathname === path && u.hash === `#${mermaidUid}`);
-  await expect(plain.locator(`td[data-cell-uid="${mermaidUid}"]`))
-    .toHaveClass(/flash-target/);
+  await expect(plain.getByRole("button", { name: /Mermaid/ })).toHaveCount(0);
+  await cell.locator("pre.code-block").click();
+  await expect(page.locator("textarea.cell-editor")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.locator("textarea.cell-editor")).toHaveCount(0);
 
-  await line.click({ modifiers: ["Shift"] });
-  await expect(page.locator(".sidebar-panel-title")).toHaveText(ownPage.title);
+  // A jump to the cell's line from elsewhere lands on the cell.
+  await page.goto(`${new URL(page.url()).pathname}#${mermaidUid}`);
+  await expect(cell).toHaveClass(/flash-target/);
 });

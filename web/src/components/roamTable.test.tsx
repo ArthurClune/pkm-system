@@ -4,7 +4,7 @@ import { describe, expect, it, vi, type Mock } from "vitest";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockOp, CreateOp } from "../api/ops";
 import type { BlockNode } from "../api/payloads";
-import { BlockRefContext, OutlinePageContext } from "../contexts";
+import { BlockRefContext } from "../contexts";
 import { roamTable } from "../outline/roamTableRows";
 import type { OutlineHandlers } from "../outline/handlers";
 import { block, canonicalTitleOf, orderIdxOf, uidOf } from "../test-helpers";
@@ -395,10 +395,8 @@ function mountMedia() {
     const tt = roamTable(n)!;
     return (
       <MemoryRouter initialEntries={[pagePath(PAGE)]}>
-        <OutlinePageContext.Provider value={PAGE}>
-          <RoamTable node={n} rows={tt.rows} options={tt.options}
-                     handlers={handlers} editable />
-        </OutlinePageContext.Provider>
+        <RoamTable node={n} rows={tt.rows} options={tt.options}
+                   handlers={handlers} editable />
         <LocProbe />
       </MemoryRouter>
     );
@@ -499,15 +497,12 @@ describe("RoamTable media cells before the tables chunk loads", () => {
   it("shows labels, fetches nothing and anchors the cell", async () => {
     vi.resetModules();
     const fresh = await import("./roamTable");
-    const ctx = await import("../contexts");
     const t = roamTable(mediaTable())!;
     const { handlers } = spyHandlers();
     const { container } = render(
       <MemoryRouter>
-        <ctx.OutlinePageContext.Provider value={PAGE}>
-          <fresh.RoamTable node={mediaTable()} rows={t.rows}
-                           options={t.options} handlers={handlers} editable />
-        </ctx.OutlinePageContext.Provider>
+        <fresh.RoamTable node={mediaTable()} rows={t.rows}
+                         options={t.options} handlers={handlers} editable />
       </MemoryRouter>);
     expect(screen.getByRole("table")).toHaveClass("roam-table");
     expect(container.querySelector("img")).toBeNull();

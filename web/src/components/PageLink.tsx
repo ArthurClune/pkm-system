@@ -27,7 +27,8 @@ export function PageLink({ title, tag }: { title: RawTitle; tag: boolean }) {
         e.stopPropagation();
         if (e.shiftKey) {
           e.preventDefault();
-          openInSidebar(title);
+          openInSidebar(title, undefined,
+                        seedTemplateState(title, PAGE_TEMPLATES));
         }
       }}
     >

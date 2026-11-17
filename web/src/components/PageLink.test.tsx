@@ -59,3 +59,25 @@ it("a link to a Paper/ page asks the page to seed its template", () => {
 it("a link to a title without a template carries no state", () => {
   expect(mountRouted("Machine Learning")).toBe("/page/Machine%20Learning null");
 });
+
+function shiftClick(titleText: string) {
+  const openInSidebar = vi.fn();
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <SidebarContext.Provider value={{ openInSidebar }}>
+        <PageLink title={rawTitleOf(titleText)} tag={false} />
+      </SidebarContext.Provider>
+    </MemoryRouter>);
+  fireEvent.click(screen.getByRole("link"), { shiftKey: true });
+  return openInSidebar;
+}
+
+it("shift-click on a Paper/ link asks the sidebar panel to seed", () => {
+  expect(shiftClick("Paper/x"))
+    .toHaveBeenCalledWith("Paper/x", undefined, { seedTemplate: true });
+});
+
+it("shift-click on a title without a template carries no marker", () => {
+  expect(shiftClick("Machine Learning"))
+    .toHaveBeenCalledWith("Machine Learning", undefined, undefined);
+});

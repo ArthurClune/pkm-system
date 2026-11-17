@@ -160,7 +160,9 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     } catch {
       // fall through regardless
     }
-    if (sidebar) openInSidebar(title);
+    if (sidebar) {
+      openInSidebar(title, undefined, seedTemplateState(title, PAGE_TEMPLATES));
+    }
     else void navigate(pagePath(title),
                        { state: seedTemplateState(title, PAGE_TEMPLATES) });
   };

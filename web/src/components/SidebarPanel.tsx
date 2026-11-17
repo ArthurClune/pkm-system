@@ -3,8 +3,10 @@ import type { BlockUid, RawTitle } from "../api/brands";
 import { EditableSidebarPanel } from "./EditableSidebarPanel";
 import { PageLink } from "./PageLink";
 
-export function SidebarPanel({ title, uid, onClose }:
-    { title: RawTitle; uid?: BlockUid; onClose: () => void }) {
+export function SidebarPanel({ title, uid, seedTemplate, onSeedTemplateHandled, onClose }: {
+  title: RawTitle; uid?: BlockUid; seedTemplate?: boolean;
+  onSeedTemplateHandled?: () => void; onClose: () => void;
+}) {
   return (
     <section className="sidebar-panel" aria-label={`sidebar: ${title}`}>
       <header className="sidebar-panel-header">
@@ -13,7 +15,8 @@ export function SidebarPanel({ title, uid, onClose }:
           ×
         </button>
       </header>
-      <EditableSidebarPanel title={title} uid={uid} />
+      <EditableSidebarPanel title={title} uid={uid} seedTemplate={seedTemplate}
+                            onSeedTemplateHandled={onSeedTemplateHandled} />
     </section>
   );
 }

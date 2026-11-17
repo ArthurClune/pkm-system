@@ -926,9 +926,33 @@ test("Ctrl-Shift-O opens the reference in the sidebar instead of navigating", as
   const ta = focusedTextarea();
   ta.setSelectionRange(9, 9);
   fireEvent.keyDown(ta, { key: "o", ctrlKey: true, shiftKey: true });
-  await waitFor(() => expect(openInSidebar).toHaveBeenCalledWith("World"));
+  await waitFor(() => expect(openInSidebar)
+    .toHaveBeenCalledWith("World", undefined, undefined));
   // the main pane must not have navigated
   expect(screen.getByText("home")).toBeInTheDocument();
+});
+
+test("Ctrl-Shift-O on a Paper/ ref asks the sidebar panel to seed", async () => {
+  stubFetch([["/api/pages", { id: 9, title: "Paper/W", created_at: 0, updated_at: 0 }]]);
+  const openInSidebar = vi.fn();
+  render(
+    <MemoryRouter initialEntries={["/"]}>
+      <SidebarContext.Provider value={{ openInSidebar }}>
+        <BlockInput
+          node={block("tuid-u1", "hello [[Paper/W]]", { order_idx: orderIdxOf(0) })}
+          cursor={0}
+          handlers={handlers()}
+          readOnly={false}
+          onRequestUpload={vi.fn()}
+          onRequestLocalFile={vi.fn()}
+        />
+      </SidebarContext.Provider>
+    </MemoryRouter>);
+  const ta = focusedTextarea();
+  ta.setSelectionRange(9, 9);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true, shiftKey: true });
+  await waitFor(() => expect(openInSidebar)
+    .toHaveBeenCalledWith("Paper/W", undefined, { seedTemplate: true }));
 });
 
 test("Cmd-K wraps the selection as a markdown link", () => {

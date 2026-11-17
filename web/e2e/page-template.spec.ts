@@ -67,23 +67,57 @@ test("search create seeds a Paper/ page once", async ({
   }
 });
 
+/** Writes a block linking to `linked` on the scratch page, so the server
+ * creates `linked` empty from the reference, as a typed link does. */
+async function linkFrom(page: Page, from: RawTitle, linked: RawTitle) {
+  const res = await page.request.post("/api/ops", { data: {
+    client_id: "e2e-page-template",
+    batch_id: `e2e-page-template-${Date.now()}`,
+    ops: [{ op: "create", uid: `pt${Date.now().toString(36)}`,
+            page_title: from, parent_uid: null, order_idx: 0,
+            text: `read [[${linked}]]` }] } });
+  expect(res.ok()).toBeTruthy();
+  await page.reload();
+}
+
 test("following a link seeds a new Paper/ page", async ({
   page, ownPage,
 }) => {
   const linked = rawTitleOf(`Paper/e2e link ${Date.now()}`);
   try {
-    const res = await page.request.post("/api/ops", { data: {
-      client_id: "e2e-page-template",
-      batch_id: `e2e-page-template-${Date.now()}`,
-      ops: [{ op: "create", uid: `pt${Date.now().toString(36)}`,
-              page_title: ownPage.title, parent_uid: null, order_idx: 0,
-              text: `read [[${linked}]]` }] } });
-    expect(res.ok()).toBeTruthy();
-    await page.reload();
+    await linkFrom(page, ownPage.title, linked);
     await page.locator(".page-link", { hasText: linked }).click();
     await expect(page.locator("h1.page-title")).toHaveText(linked);
     await expectSeeded(page);
     await waitForServerText(page, linked, "Tags:: #Paper");
+  } finally {
+    await page.request.delete(pageUrl(linked));
+  }
+});
+
+test("shift-click seeds a new Paper/ page in the sidebar once", async ({
+  page, ownPage,
+}) => {
+  const linked = rawTitleOf(`Paper/e2e sidebar ${Date.now()}`);
+  try {
+    await linkFrom(page, ownPage.title, linked);
+    await page.locator(".page-link", { hasText: linked })
+      .click({ modifiers: ["Shift"] });
+    const panel = page.getByRole("region", { name: `sidebar: ${linked}` });
+    await expect(panel.locator("textarea.block-input"))
+      .toHaveValue("Tags:: #Paper");
+    await waitForServerText(page, linked, "Local copy:: ");
+
+    // Undone, then the sidebar hidden and re-shown, which remounts the
+    // panel: its entry no longer carries the marker.
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => serverBlockCount(page, linked)).toBe(0);
+    await page.keyboard.press("ControlOrMeta+/");
+    await expect(panel).toHaveCount(0);
+    await page.keyboard.press("ControlOrMeta+/");
+    await expect(panel.getByText("Click to start writing…")).toBeVisible();
+    expect(await serverBlockCount(page, linked)).toBe(0);
   } finally {
     await page.request.delete(pageUrl(linked));
   }

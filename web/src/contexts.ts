@@ -5,6 +5,7 @@
 // the tree -- there's no pure decision to extract.
 import { createContext } from "react";
 import type { BlockUid, RawTitle } from "./api/brands";
+import type { SeedTemplateState } from "./templates/pageTemplates";
 import type { BlockNode, BlockRefText } from "./api/payloads";
 import { createBlockRefStore } from "./components/blockRefStore";
 
@@ -12,8 +13,9 @@ export interface SidebarApi {
   /** uid, when given, is the block to scroll to and flash once the panel's
    * page has rendered -- scoped to that panel's own container,
    * never a document-wide lookup (the same page may be open in the main
-   * window at the same time). */
-  openInSidebar: (title: RawTitle, uid?: BlockUid) => void;
+   * window at the same time). `seed` asks the panel to seed the page's
+   * template on arrival, as a followed link does in the main view. */
+  openInSidebar: (title: RawTitle, uid?: BlockUid, seed?: SeedTemplateState) => void;
 }
 
 export const SidebarContext = createContext<SidebarApi>({

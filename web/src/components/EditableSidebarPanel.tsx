@@ -26,7 +26,10 @@ import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
 import { EditablePage } from "../views/EditablePage";
 
-export function EditableSidebarPanel({ title, uid }: { title: RawTitle; uid?: BlockUid }) {
+export function EditableSidebarPanel({ title, uid, seedTemplate, onSeedTemplateHandled }: {
+  title: RawTitle; uid?: BlockUid; seedTemplate?: boolean;
+  onSeedTemplateHandled?: () => void;
+}) {
   const { payload, error } = useOutlinePageLoad(title, substituteMissingDaily);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -41,7 +44,9 @@ export function EditableSidebarPanel({ title, uid }: { title: RawTitle; uid?: Bl
     <div ref={containerRef}>
       <BlockRefProvider seed={payload.block_ref_texts}>
         <EditablePage title={payload.page.title} initial={payload.blocks}
-                      reveal={uid} onRevealed={onRevealed} />
+                      reveal={uid} onRevealed={onRevealed}
+                      seedTemplate={seedTemplate}
+                      onSeedTemplateHandled={onSeedTemplateHandled} />
       </BlockRefProvider>
     </div>
   );

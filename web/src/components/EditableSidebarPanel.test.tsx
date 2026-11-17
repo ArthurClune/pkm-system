@@ -446,3 +446,20 @@ test("a padded title ends with one session, under the canonical key", async () =
   unmount();
   vi.unstubAllGlobals();
 });
+
+test("seedTemplate on an empty Paper/ panel seeds the template", async () => {
+  const sync = makeSync();
+  const onHandled = vi.fn();
+  stubFetch([["/api/page/Paper/X", pagePayload(canonicalTitleOf("Paper/X"), [])]]);
+  render(
+    <MemoryRouter>
+      <SyncContext.Provider value={sync}>
+        <EditableSidebarPanel title={rawTitleOf("Paper/X")} seedTemplate
+                              onSeedTemplateHandled={onHandled} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  await waitFor(() => expect(onHandled).toHaveBeenCalledTimes(1));
+  expect(sync.sent).toHaveLength(1);
+  expect(sync.sent[0].map((o) => o.op === "create" && o.text))
+    .toEqual(["Tags:: #Paper", "URL:: ", "Date:: ", "Local copy:: "]);
+});

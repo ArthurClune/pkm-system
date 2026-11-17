@@ -5,6 +5,9 @@
 // which the property must catch, by a report naming the invariant the
 // mutant breaks.
 // A mutant that survives means the property cannot see that bug.
+// The property never lands the clicked load's own answer after a Refresh,
+// as the stale guard drops it, so the rule that such a landing holds is
+// pinned by queryBlock.test.ts, not by a mutant here.
 import {
   makeQueryBlock, QUERY_BLOCK, REAL_QUERY, type QueryBlock, type QueryMachine,
 } from "../../tables/queryBlock";
@@ -133,6 +136,13 @@ const MUTANTS: Record<string, Mutant> = {
       const next = QUERY_BLOCK.step(s, e);
       return e.kind === "view" && e.event.kind === "edited"
         ? { ...next, refreshFrom: s.refreshFrom } : next;
+    },
+  },
+  "a failed answer cancels the refresh": {
+    catches: ["frozen"], ...QUERY_BLOCK,
+    step: (s, e) => {
+      const next = QUERY_BLOCK.step(s, e);
+      return e.kind === "recordsFailed" ? { ...next, refreshFrom: null } : next;
     },
   },
   "leaving the blocks view keeps the fetch tried": {

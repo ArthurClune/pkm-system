@@ -3,17 +3,20 @@ must run even when the response never reaches a completed send, unlike
 stock FileResponse's `background` task, which Starlette only awaits
 after `__call__` returns *without* raising.
 
-Under this project's actual ASGI server (uvicorn 0.49.0), an ordinary
-client disconnect does NOT hit that gap: uvicorn's `send()` silently
+Under this project's actual ASGI server (uvicorn 0.54.0), an ordinary
+client disconnect does NOT hit that gap: FileResponse cancels its own
+send when `receive()` reports the disconnect, and uvicorn's `send()`
 no-ops once the connection is marked disconnected rather than raising,
-so the send loop still runs to completion and stock `background` still
-fires. What genuinely needs `CleanupFileResponse`: a missing/unreadable
+so `__call__` returns normally and stock `background` still fires.
+What genuinely needs `CleanupFileResponse`: a missing/unreadable
 file (`FileResponse.__call__` raises `RuntimeError` from its own
 `os.stat` before reaching the `background` line) and, as
 defense-in-depth, an ASGI server that -- unlike uvicorn -- surfaces a
 dropped connection as a `send()` exception rather than a no-op (nothing
 in the ASGI spec guarantees uvicorn's no-op behavior)."""
+import anyio
 import pytest
+from starlette.types import Message
 
 from pkm.server.tempfile_response import CleanupFileResponse
 
@@ -26,8 +29,11 @@ class _Cleanup:
         self.calls += 1
 
 
-async def _noop_receive():
-    return {"type": "http.disconnect"}
+async def _connected_receive() -> Message:
+    # The client stays: FileResponse watches receive() for a disconnect
+    # throughout the send, and would cancel the send on reading one.
+    await anyio.sleep_forever()
+    raise AssertionError("sleep_forever returned")
 
 
 def _scope():
@@ -46,7 +52,7 @@ async def test_cleanup_runs_after_a_successful_send(tmp_path):
 
     resp = CleanupFileResponse(path, media_type="application/zip",
                                filename="a.zip", cleanup=cleanup)
-    await resp(_scope(), _noop_receive, send)
+    await resp(_scope(), _connected_receive, send)
 
     assert cleanup.calls == 1
     bodies = b"".join(m["body"] for m in sent if m["type"] == "http.response.body")
@@ -73,7 +79,7 @@ async def test_cleanup_runs_if_send_itself_raises_mid_transfer(tmp_path):
     resp = CleanupFileResponse(path, media_type="application/zip",
                                filename="a.zip", cleanup=cleanup)
     with pytest.raises(OSError, match="send\\(\\) raised instead of no-opping"):
-        await resp(_scope(), _noop_receive, send)
+        await resp(_scope(), _connected_receive, send)
 
     assert cleanup.calls == 1
 
@@ -91,7 +97,7 @@ async def test_cleanup_runs_even_if_the_file_is_missing(tmp_path):
     resp = CleanupFileResponse(path, media_type="application/zip",
                                filename="missing.zip", cleanup=cleanup)
     with pytest.raises(RuntimeError):
-        await resp(_scope(), _noop_receive, send)
+        await resp(_scope(), _connected_receive, send)
 
     assert cleanup.calls == 1
 

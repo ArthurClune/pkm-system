@@ -5,10 +5,11 @@ gets as far as a completed send.
 Stock Starlette `FileResponse.background` is only awaited *after*
 `__call__` returns without raising -- it is not wrapped in a `finally`.
 That gap does NOT cover an ordinary client disconnect under this
-project's actual ASGI server: uvicorn's `send()` (h11_impl.py/
-httptools_impl.py, checked against the installed 0.49.0) silently
-no-ops once the connection is marked disconnected rather than raising,
-so `_handle_simple`'s send loop still runs to completion and stock
+project's actual ASGI server: `FileResponse` keeps a `receive()` pending
+while it sends and cancels the send when it reads `http.disconnect`, and
+uvicorn's `send()` (h11_impl.py/httptools_impl.py, checked against the
+installed 0.54.0) no-ops once the connection is marked disconnected
+rather than raising, so either way `__call__` returns normally and stock
 `background` still fires on a real disconnect. What genuinely reaches
 `CleanupFileResponse`'s `finally` instead: `os.stat`-time failures
 (`FileResponse.__call__` raises `RuntimeError` for a missing/non-regular

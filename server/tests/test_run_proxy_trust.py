@@ -27,8 +27,11 @@ def _throttle_key_after_wrong_password(config, peer: str,
     cfg.load()
 
     async def post() -> int:
-        transport = httpx.ASGITransport(app=cfg.loaded_app,
-                                        client=(peer, 50000))
+        # uvicorn types its middleware with its own ASGI TypedDicts, httpx
+        # with MutableMapping; the two are compatible at runtime only.
+        transport = httpx.ASGITransport(
+            app=cfg.loaded_app,  # pyrefly: ignore[bad-argument-type]
+            client=(peer, 50000))
         async with httpx.AsyncClient(transport=transport,
                                      base_url="http://testserver") as c:
             r = await c.post("/api/login", json={"password": "nope"},

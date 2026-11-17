@@ -1,6 +1,6 @@
 // pattern: Imperative Shell
 import { useCallback, useContext, useEffect, useState } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { BacklinksSection } from "../components/BacklinksSection";
 import { BlockRefProvider } from "../components/BlockRefProvider";
 import { PageTitle } from "../components/PageTitle";
@@ -13,10 +13,14 @@ import { substituteMissingDaily } from "../outline/missingPage";
 import { useOutlinePageLoad } from "../outline/useOutlinePageLoad";
 import { useRestoresHistoryScroll } from "../useHistoryScrollRestore";
 import { useScrollFlashTarget } from "../useScrollFlashTarget";
+import { wantsTemplateSeed } from "../templates/pageTemplates";
 import { EditablePage } from "./EditablePage";
 
 export function PageView() {
-  const { pathname, hash, key } = useLocation();
+  const location = useLocation();
+  const { pathname, search, hash, key } = location;
+  const seedState: unknown = location.state;
+  const navigate = useNavigate();
   const title = titleFromPathname(pathname);
   const { payload, error, reload } =
     useOutlinePageLoad(title, substituteMissingDaily);
@@ -43,6 +47,11 @@ export function PageView() {
   const [revealed, setRevealed] = useState(0);
   const onRevealed = useCallback(() => setRevealed((n) => n + 1), []);
   useScrollFlashTarget(target, payload, { navigation: key, revealed });
+  // Replacing the entry without its state is what stops a reload or a later
+  // back/forward to it from seeding again.
+  const dropSeedMarker = useCallback(() => {
+    void navigate({ pathname, search, hash }, { replace: true });
+  }, [navigate, pathname, search, hash]);
 
   if (error) return <p className="error">Could not load "{title}": {error}</p>;
   if (!payload) return <p className="loading">Loading…</p>;
@@ -54,7 +63,9 @@ export function PageView() {
                       initial={payload.blocks} stamps={stamps}
                       refCounts={payload.block_ref_counts}
                       reveal={target} revealNavigation={key}
-                      onRevealed={onRevealed} />
+                      onRevealed={onRevealed}
+                      seedTemplate={wantsTemplateSeed(seedState)}
+                      onSeedTemplateHandled={dropSeedMarker} />
       </article>
       <BacklinksSection
         key={`bl-${title}`}

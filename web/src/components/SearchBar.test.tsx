@@ -19,7 +19,11 @@ const results = {
 /** Renders the current path + hash so tests can assert navigation targets. */
 function LocationProbe() {
   const { pathname, hash } = useLocation();
-  return <p data-testid="location">{pathname + hash}</p>;
+  const state: unknown = useLocation().state;
+  return <>
+    <p data-testid="location">{pathname + hash}</p>
+    <p data-testid="state">{JSON.stringify(state) ?? ""}</p>
+  </>;
 }
 
 function renderBar(openInSidebar: SidebarApi["openInSidebar"] = () => undefined) {
@@ -346,4 +350,31 @@ it("a refused create shows the reason and keeps the search open", async () => {
 
   fireEvent.change(input, { target: { value: "a/bc" } });
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("creating a Paper/ page asks the page to seed its template", async () => {
+  stubFetch([
+    ["/api/search?q=Paper%2Fnew", { pages: [], blocks: [] }],
+    ["/api/pages", { id: 43, title: "Paper/new", created_at: 1, updated_at: 1 }],
+  ]);
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "Paper/new" } });
+  await screen.findByText('Create page "Paper/new"');
+  await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+  expect(screen.getByTestId("location").textContent).toBe("/page/Paper/new");
+  expect(screen.getByTestId("state").textContent)
+    .toBe('{"seedTemplate":true}');
+});
+
+it("creating a page without a template carries no navigation state", async () => {
+  stubFetch([
+    ["/api/search?q=papers", results],
+    ["/api/pages", { id: 42, title: "papers", created_at: 1, updated_at: 1 }],
+  ]);
+  const input = renderBar();
+  fireEvent.change(input, { target: { value: "papers" } });
+  await screen.findByText('Create page "papers"');
+  await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+  expect(screen.getByTestId("location").textContent).toBe("/page/papers");
+  expect(screen.getByTestId("state").textContent).toBe("null");
 });

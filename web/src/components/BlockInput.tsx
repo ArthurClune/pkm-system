@@ -29,6 +29,8 @@ import { matchSlashCommands, planPick } from "../outline/slashCommands";
 import { useAutocomplete } from "../outline/useAutocomplete";
 import { useBlockDraft } from "../outline/useBlockDraft";
 import { pagePath } from "../paths";
+import { PAGE_TEMPLATES } from "../templates/load";
+import { seedTemplateState } from "../templates/pageTemplates";
 import { titleForDate } from "../replica/daily";
 import { AutocompletePopup, buildRows, useTitleOptions,
          type AcRow } from "./AutocompletePopup";
@@ -158,8 +160,11 @@ export function BlockInput({ node, cursor, handlers, readOnly,
     } catch {
       // fall through regardless
     }
-    if (sidebar) openInSidebar(title);
-    else void navigate(pagePath(title));
+    if (sidebar) {
+      openInSidebar(title, undefined, seedTemplateState(title, PAGE_TEMPLATES));
+    }
+    else void navigate(pagePath(title),
+                       { state: seedTemplateState(title, PAGE_TEMPLATES) });
   };
 
   const pick = (row: AcRow) => {

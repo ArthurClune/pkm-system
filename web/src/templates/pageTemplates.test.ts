@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
-import { canonicalTitleOf } from "../test-mint";
-import { firstBlockTexts, parseTemplate,
-         templatesFromFiles } from "./pageTemplates";
+import { canonicalTitleOf, rawTitleOf } from "../test-mint";
+import { firstBlockTexts, parseTemplate, seedTemplateState, templateFor,
+         templatesFromFiles, wantsTemplateSeed } from "./pageTemplates";
 import { PAGE_TEMPLATES } from "./load";
 
 it("parses one block per '- ' line, padding a bare 'Key::'", () => {
@@ -48,4 +48,28 @@ it("every shipped template file parses", () => {
   const files = import.meta.glob("./*.md",
     { query: "?raw", import: "default", eager: true });
   expect(PAGE_TEMPLATES.size).toBe(Object.keys(files).length);
+});
+
+const PAPER = new Map([["Paper", ["Tags:: #Paper", "URL:: "]]]);
+
+it("finds a title's template, or null when it has none", () => {
+  expect(templateFor(rawTitleOf("Paper/x"), PAPER))
+    .toEqual(["Tags:: #Paper", "URL:: "]);
+  for (const t of ["Papers/x", "paper/x", "Paper"]) {
+    expect(templateFor(rawTitleOf(t), PAPER)).toBeNull();
+  }
+});
+
+it("marks a navigation only toward a title with a template", () => {
+  const t = new Map([["Book", ["Tags:: #Book"]]]);
+  expect(seedTemplateState(rawTitleOf("Book/y"), t))
+    .toEqual({ seedTemplate: true });
+  expect(seedTemplateState(rawTitleOf("Page"), t)).toBeUndefined();
+});
+
+it.each([
+  [{ seedTemplate: true }, true], [null, false], [undefined, false],
+  ["x", false], [{}, false], [{ seedTemplate: "yes" }, false],
+])("reads router state %j as a seed request: %j", (state, wanted) => {
+  expect(wantsTemplateSeed(state)).toBe(wanted);
 });

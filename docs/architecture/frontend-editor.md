@@ -355,16 +355,29 @@ entry.
 
 ### Page templates
 
-"Click to start writing…" on an empty page calls
-`useOutline.createFirstBlock`. It creates the blocks
-`templates/pageTemplates.ts::firstBlockTexts` returns for the title: those
-of the markdown file in `web/src/templates/` named for the title's
-namespace (`Paper.md` for `Paper/…`), else one empty block. All of them go
-in one `run()`, so one undo removes them. A template is seeded only on that
-click, never when a page is opened or created. Viewing a page must not
-write, and two devices opening the same new page must not both seed it.
-`templates/load.ts` bundles the files with `import.meta.glob`, so they work
-offline and sit in the entry chunk.
+A template is the blocks of the markdown file in `web/src/templates/` named
+for the title's namespace (`Paper.md` for `Paper/…`), returned by
+`templates/pageTemplates.ts::templateFor`. `useOutline.createFirstBlock`
+creates them in one `run()`, so one undo removes them; a title without a
+template gets one empty block. `templates/load.ts` bundles the files with
+`import.meta.glob`, so they work offline and sit in the entry chunk.
+
+| Trigger | How the page learns of it |
+|---|---|
+| "Click to start writing…" | the click calls `createFirstBlock` |
+| search's "Create page", a page link or tag click, Ctrl-O | router state from `seedTemplateState`, read by `PageView` |
+| shift-click, Ctrl-Shift-O | `openInSidebar`'s `seed`, kept on the sidebar entry |
+
+**Opening a page any other way never writes**: not the sidebar list,
+history, back/forward, a bookmark or a reload. So the marker is used once.
+`EditablePage` acts on `seedTemplate` when its outline is editable,
+creating the template only if the page is empty and has one. It then calls
+`onSeedTemplateHandled`. A mount waiting for another mount's editor lease
+(`isOutlineEditorActive`) drops the marker unused: seeding when the
+lease passes to it would rewrite a template the reader undid in the other. `PageView` replaces the history entry without
+its state, and `App` clears the entry's `seed`, so a reload or a re-shown
+sidebar panel does not seed again. Only a title with a template gets a
+marker, so other navigations carry no state.
 
 ### The bullet and the block menu
 

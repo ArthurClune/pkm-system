@@ -3,6 +3,7 @@ import { type ComponentType, createElement, useEffect, useLayoutEffect, useMemo,
          useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { BlockUid, RawTitle } from "./api/brands";
+import type { SeedTemplateState } from "./templates/pageTemplates";
 import { asRawTitle } from "./replica/titles";
 import { AssistantPanel } from "./assistant/AssistantPanel";
 import { ExternalLinkInterceptor } from "./components/ExternalLinkInterceptor";
@@ -42,6 +43,9 @@ interface SidebarEntry {
   // The block to scroll to and flash within this panel, e.g. a
   // shift-clicked block ref or assistant asset link.
   uid?: BlockUid;
+  // Cleared once the panel has acted on it, so a panel remounted by hiding
+  // and re-showing the sidebar never seeds again.
+  seed?: SeedTemplateState;
 }
 
 function NotFound() {
@@ -123,10 +127,10 @@ export function App() {
   const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
 
   const sidebarApi = useMemo(() => ({
-    openInSidebar: (title: RawTitle, uid?: BlockUid) => {
+    openInSidebar: (title: RawTitle, uid?: BlockUid, seed?: SeedTemplateState) => {
       const id = idRef.current;
       idRef.current += 1;
-      setStack((s) => [{ id, title, uid }, ...s]); // newest on top
+      setStack((s) => [{ id, title, uid, seed }, ...s]); // newest on top
       setSidebarHidden(false); // opening while hidden must not be a silent no-op
     },
   }), []);
@@ -271,6 +275,9 @@ export function App() {
                       key={entry.id}
                       title={entry.title}
                       uid={entry.uid}
+                      seedTemplate={entry.seed !== undefined}
+                      onSeedTemplateHandled={() => setStack((s) => s.map((e) =>
+                        e.id === entry.id ? { ...e, seed: undefined } : e))}
                       onClose={() => setStack((s) => s.filter((e) => e.id !== entry.id))}
                     />
                   ))}

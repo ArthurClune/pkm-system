@@ -54,9 +54,6 @@ export interface Outline {
   blocks: BlockNode[];
   session: OutlineSessionHandle | null;
   ownsEditor: boolean;
-  /** The lease has been asked for and another mount of this title holds it.
-   * False before the claim, so a first render is not mistaken for this. */
-  editorWaiting: boolean;
   focus: FocusTarget | null;
   selection: BlockSelection | null;
   readOnly: boolean;
@@ -90,7 +87,6 @@ export function useOutline(
   const [blocks, setBlocks] = useState(initial);
   const [session, setSession] = useState<OutlineSessionHandle | null>(null);
   const [ownsEditor, setOwnsEditor] = useState(false);
-  const [leaseClaimed, setLeaseClaimed] = useState(false);
   const [focus, setFocus] = useState<FocusTarget | null>(null);
   const [noticeSlots, setNoticeSlots] = useState<NoticeSlots>(NO_NOTICES);
   const setNotice = useCallback((kind: NoticeKind, text: string | null) => {
@@ -170,16 +166,12 @@ export function useOutline(
       "editable", () => loadOutlineBlocks(pageTitle, substituteMissingDaily),
     );
     const lease = editorOwner ? handle.claimEditor(editorOwner) : null;
-    const updateLease = () => {
-      setOwnsEditor(lease?.granted ?? false);
-      setLeaseClaimed(true);
-    };
+    const updateLease = () => setOwnsEditor(lease?.granted ?? false);
     const unsubscribeLease = lease?.subscribe(updateLease);
     adoptShared();
     setSession(handle);
     updateLease();
     return () => {
-      setLeaseClaimed(false);
       unsubscribeLease?.();
       lease?.release();
       removeLoader();
@@ -745,7 +737,6 @@ export function useOutline(
     blocks,
     session,
     ownsEditor,
-    editorWaiting: leaseClaimed && !ownsEditor,
     focus,
     selection,
     // offline editing: the replica persists + renders edits

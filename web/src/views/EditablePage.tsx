@@ -8,6 +8,7 @@ import { useDropZone } from "../dnd/useDropZone";
 import type { DropTarget } from "../outline/dnd";
 import { selectionDragUids } from "../outline/blockSelection";
 import { subtreeHeight } from "../outline/depthCap";
+import { isOutlineEditorActive } from "../outline/outlineSessions";
 import { findNode, hidingAncestors } from "../outline/tree";
 import { useConfirm } from "../components/ConfirmDialog";
 import { DismissibleNotice } from "../components/DismissibleNotice";
@@ -97,12 +98,15 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   const getBlocks = useCallback(() => blocksRef.current, []);
   const seededRef = useRef(false);
   const createFirstBlock = outline.createFirstBlock;
-  const editorWaiting = outline.editorWaiting;
+  const session = outline.session;
   // A mount waiting for the editor drops the marker unused: seeding later,
   // when the other mount closes, would rewrite a template the reader may
-  // have undone there.
+  // have undone there. `session` is set in the same commit as the lease
+  // claim, so this effect runs once the claim's outcome is known.
   useEffect(() => {
     if (!seedTemplate || seededRef.current) return;
+    const editorWaiting = session !== null && !ownsEditor
+      && isOutlineEditorActive(title);
     if (!canReveal && !editorWaiting) return;
     seededRef.current = true;
     if (canReveal && blocksRef.current.length === 0
@@ -110,7 +114,7 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
       createFirstBlock();
     }
     onSeedTemplateHandled?.();
-  }, [seedTemplate, canReveal, editorWaiting, title, createFirstBlock,
+  }, [seedTemplate, canReveal, session, ownsEditor, title, createFirstBlock,
       onSeedTemplateHandled]);
 
   const uploadOutlineFiles = outline.onDropFiles;

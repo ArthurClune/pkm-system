@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { Link, MemoryRouter, Route, Routes } from "react-router";
+import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireOutlineSession,
@@ -1460,4 +1460,43 @@ it("shows the stamp column on a page but not in the journal or a sidebar panel",
   );
   expect(await screen.findByText("stamped")).toBeInTheDocument();
   expect(journal.container.querySelector(".block-stamp")).toBeNull();
+});
+
+describe("arriving with the seed marker", () => {
+  function StateProbe() {
+    const { pathname } = useLocation();
+    const state: unknown = useLocation().state;
+    return <p data-testid="probe">{`${pathname} ${JSON.stringify(state)}`}</p>;
+  }
+
+  function renderSeeded(state: unknown) {
+    const sync = makeSync();
+    stubFetch([["/api/page/Paper/X", pagePayload(canonicalTitleOf("Paper/X"), [])]]);
+    render(
+      <SyncContext.Provider value={sync}>
+        <MemoryRouter initialEntries={[{ pathname: "/page/Paper/X", state }]}>
+          <Routes>
+            <Route path="/page/*" element={<PageView />} />
+          </Routes>
+          <StateProbe />
+        </MemoryRouter>
+      </SyncContext.Provider>);
+    return sync;
+  }
+
+  it("seeds an empty Paper/ page and drops the marker", async () => {
+    const sync = renderSeeded({ seedTemplate: true });
+    expect(await screen.findByRole("heading", { name: "Paper/X" })).toBeInTheDocument();
+    expect(sync.sent).toHaveLength(1);
+    expect(sync.sent[0].map((o) => o.op === "create" && o.text))
+      .toEqual(["Tags:: #Paper", "URL:: ", "Date:: ", "Local copy:: "]);
+    expect(screen.getByTestId("probe").textContent).toBe("/page/Paper/X null");
+  });
+
+  it("without the marker, writes nothing", async () => {
+    const sync = renderSeeded(undefined);
+    expect(await screen.findByRole("heading", { name: "Paper/X" })).toBeInTheDocument();
+    expect(sync.sent).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /start writing/i })).toBeInTheDocument();
+  });
 });

@@ -1,6 +1,6 @@
 import { createEvent, fireEvent, render, screen,
          waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SidebarContext } from "../contexts";
 import { titleForDate } from "../replica/daily";
@@ -802,11 +802,19 @@ test("adopting a remote update clamps the caret to the new (shorter) length", ()
   expect(ta.selectionStart).toBe(2);
 });
 
-function mountWithPageRoute(h: OutlineHandlers, cursor: number) {
+function RouteStateProbe() {
+  const state: unknown = useLocation().state;
+  return <>
+    <p>page view here</p>
+    <p data-testid="route-state">{JSON.stringify(state)}</p>
+  </>;
+}
+
+function mountWithPageRoute(h: OutlineHandlers, cursor: number, node = NODE) {
   render(
     <MemoryRouter initialEntries={["/"]}>
       <BlockInput
-        node={NODE}
+        node={node}
         cursor={cursor}
         handlers={h}
         readOnly={false}
@@ -815,7 +823,7 @@ function mountWithPageRoute(h: OutlineHandlers, cursor: number) {
       />
       <Routes>
         <Route path="/" element={<p>home</p>} />
-        <Route path="/page/*" element={<p>page view here</p>} />
+        <Route path="/page/*" element={<RouteStateProbe />} />
       </Routes>
     </MemoryRouter>);
 }
@@ -828,6 +836,17 @@ test("Ctrl-O inside a [[page reference]] navigates to that page", async () => {
   ta.setSelectionRange(9, 9); // caret inside "[[World]]" (block text: "hello [[World]]")
   fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
   await waitFor(() => expect(screen.getByText("page view here")).toBeInTheDocument());
+});
+
+test("Ctrl-O to a Paper/ page asks it to seed its template", async () => {
+  stubFetch([["/api/pages", { id: 1, title: "Paper/W", created_at: 0, updated_at: 0 }]]);
+  const node = block("tuid-u1", "hello [[Paper/W]]", { order_idx: orderIdxOf(0) });
+  mountWithPageRoute(handlers(), 0, node);
+  const ta = focusedTextarea();
+  ta.setSelectionRange(9, 9);
+  fireEvent.keyDown(ta, { key: "o", ctrlKey: true });
+  await waitFor(() => expect(screen.getByTestId("route-state").textContent)
+    .toBe('{"seedTemplate":true}'));
 });
 
 test("Ctrl-O outside a ref does not navigate or preventDefault", () => {

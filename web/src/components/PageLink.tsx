@@ -6,6 +6,8 @@ import { useContext } from "react";
 import { Link } from "react-router";
 import { SidebarContext } from "../contexts";
 import { pagePath } from "../paths";
+import { PAGE_TEMPLATES } from "../templates/load";
+import { seedTemplateState } from "../templates/pageTemplates";
 import { pageNamespace } from "./pageNamespace";
 
 export function PageLink({ title, tag }: { title: RawTitle; tag: boolean }) {
@@ -13,6 +15,7 @@ export function PageLink({ title, tag }: { title: RawTitle; tag: boolean }) {
   return (
     <Link
       to={pagePath(title)}
+      state={seedTemplateState(title, PAGE_TEMPLATES)}
       className={tag ? "tag" : "page-link"}
       // tags are chips with their own colour; only prose links take the
       // per-tree colour (see the data-ns rules in styles.css)

@@ -8,6 +8,8 @@ import type { SearchPayload } from "../api/payloads";
 import { SidebarContext } from "../contexts";
 import { parseSnippet } from "../grammar/snippet";
 import { pagePath } from "../paths";
+import { PAGE_TEMPLATES } from "../templates/load";
+import { seedTemplateState } from "../templates/pageTemplates";
 import { asRawTitle } from "../replica/titles";
 import { useDismiss } from "../useDismiss";
 import { useStaleGuard } from "../useStaleGuard";
@@ -153,7 +155,8 @@ export function SearchBar() {
         return;
       }
       cancel();
-      void navigate(pagePath(row.title));
+      void navigate(pagePath(row.title),
+                    { state: seedTemplateState(row.title, PAGE_TEMPLATES) });
       return;
     }
     cancel();

@@ -11,7 +11,8 @@
 // then was sent before the click and may predate the edits it should show.
 // A cell edit that freezes rows while a Refresh is pending cancels it: the
 // records were requested before that edit, and releasing on them would
-// move or drop the row just written.
+// move or drop the row just written. An edit while rows are already held
+// leaves it pending: the reader asked for those rows to go before it.
 //
 // A load is one records request, named by the shell's load key. The
 // records may carry the groups (queryDefaults' blocks case), so a fetch

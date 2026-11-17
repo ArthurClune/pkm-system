@@ -471,14 +471,16 @@ write different macro text, so a filter that differs only in padding
 offers no Save. A live view nobody changed follows a new saved one, so a
 Save on another device does not leave this one offering Reset. After a
 cell edit the rows on screen are held (`frozen`) until the reader changes
-the view or resets it, so an edited row neither moves nor vanishes. A
-refetch that no longer returns a held row keeps showing its last record,
-stale (`holdRecords`). Otherwise an edit that took a row out of the query
-would drop it, and commit any draft open in it, on the next resync.
-A cell edit never refetches. Held rows go only on a view change or on
-Refresh, and Refresh releases them when its records land, so a resync
-still holds them. The contract's rows say when an edit cancels a pending
-Refresh.
+the view, resets it, or a Refresh's records land, so an edited row neither
+moves nor vanishes. A resync keeps them. A refetch that no longer returns
+a held row keeps showing its last record, stale (`holdRecords`). Otherwise
+an edit that took a row out of the query would drop it, and commit any
+draft open in it, on the next resync.
+A cell edit never refetches. Refresh asks for its records only once the
+block's cell writes are delivered (`settled` in `useCellWrites`). The
+click's own mousedown commits an open cell, and records requested before
+that write reaches the server would show the cell's old value. The
+contract's rows say when an edit cancels a pending Refresh.
 A query block also holds what the first edit saw (`stepQueryView`): a view
 or column list the macro leaves to the data's defaults stays as it was
 then (`showQuery`). A refetch can move those defaults: records that no

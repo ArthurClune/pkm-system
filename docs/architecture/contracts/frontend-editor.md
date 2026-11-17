@@ -183,6 +183,7 @@ than the reader's own changes.
 | Refresh clicked, then records requested since the click land | as with no rows held | the reader asked for what the query matches now |
 | Refresh clicked, then its records fail | as before the click, and the next records that land release the rows | |
 | Refresh clicked, then a cell written while no rows are held | the Refresh is cancelled: the rows that edit holds, as after any edit | the refreshed records were requested before the edit, and would move or drop the row just written |
+| Refresh clicked, then a cell written while rows are held | the Refresh stays pending: records requested since the click release the rows | the reader asked for the held rows to go before this edit |
 
 ## What a query block fetches
 

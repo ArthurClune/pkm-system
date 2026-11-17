@@ -79,7 +79,9 @@ test("an assistant reply's external image and Bluesky post fetch nothing until c
     await login(page);
 
     await page.goto("/");
-    await page.keyboard.press("Control+j");
+    // Not Ctrl-J: App adds its key listener in an effect, so a key pressed
+    // straight after a load can land before it. The click is never lost.
+    await page.getByRole("button", { name: "Assistant", exact: true }).click();
     const panel = page.getByRole("region", { name: "Assistant" });
     await expect(panel).toBeVisible();
     const replies = panel.locator(".assistant-msg-assistant");
@@ -167,7 +169,9 @@ test("an assistant reply's diagrams fetch nothing, and the stock fallback waits 
     await login(page);
 
     await page.goto("/");
-    await page.keyboard.press("Control+j");
+    // Not Ctrl-J: App adds its key listener in an effect, so a key pressed
+    // straight after a load can land before it. The click is never lost.
+    await page.getByRole("button", { name: "Assistant", exact: true }).click();
     const panel = page.getByRole("region", { name: "Assistant" });
     await expect(panel).toBeVisible();
     const replies = panel.locator(".assistant-msg-assistant");

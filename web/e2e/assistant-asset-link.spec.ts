@@ -54,7 +54,9 @@ test("clicking an asset link in an assistant reply opens the "
   ]);
 
   await page.goto("/");
-  await page.keyboard.press("Control+j");
+  // Not Ctrl-J: App adds its key listener in an effect, so a key pressed
+  // straight after a load can land before it. The click is never lost.
+  await page.getByRole("button", { name: "Assistant", exact: true }).click();
   const panel = page.getByRole("region", { name: "Assistant" });
   await expect(panel).toBeVisible();
 

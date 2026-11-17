@@ -6,7 +6,7 @@ import time
 from dataclasses import replace
 
 import anyio
-import httpx
+import httpx2
 import pytest
 from conftest import TEST_PASSWORD
 from fastapi.routing import APIRoute, APIWebSocketRoute
@@ -144,10 +144,10 @@ def _frozen_throttle(app, **kwargs) -> tuple[LoginThrottle, list[int]]:
 
 
 async def _logins(app, peer: str,
-                  passwords: list[str]) -> list[httpx.Response]:
+                  passwords: list[str]) -> list[httpx2.Response]:
     """All `passwords` posted at once from one client address."""
-    transport = httpx.ASGITransport(app=app, client=(peer, 50000))
-    async with httpx.AsyncClient(transport=transport, timeout=60,
+    transport = httpx2.ASGITransport(app=app, client=(peer, 50000))
+    async with httpx2.AsyncClient(transport=transport, timeout=60,
                                  base_url="http://testserver") as c:
         return list(await asyncio.gather(
             *[c.post("/api/login", json={"password": p}) for p in passwords]))
@@ -177,7 +177,7 @@ def test_a_burst_from_one_source_does_not_lock_out_another(
     _count_checks(monkeypatch)
     _frozen_throttle(anon_client.app)
 
-    async def both() -> list[httpx.Response]:
+    async def both() -> list[httpx2.Response]:
         burst, user = await asyncio.gather(
             _logins(anon_client.app, ATTACKER, ["guess"] * BURST),
             _logins(anon_client.app, USER, [TEST_PASSWORD]))
@@ -209,7 +209,7 @@ def test_a_wait_for_the_source_that_times_out_gets_the_throttle_refusal(
     checks = _count_checks(monkeypatch)
     throttle, _ = _frozen_throttle(anon_client.app, acquire_timeout_s=0.1)
 
-    async def behind_a_stuck_check() -> httpx.Response:
+    async def behind_a_stuck_check() -> httpx2.Response:
         assert await throttle.take_turn(USER)
         [r] = await _logins(anon_client.app, USER, [TEST_PASSWORD])
         throttle.end_turn(USER)
@@ -231,7 +231,7 @@ def test_a_cancelled_request_leaves_its_turn_to_the_check(anon_client,
     checks = _count_checks(monkeypatch, pause_s=0.3)
     throttle, _ = _frozen_throttle(anon_client.app)
 
-    async def cancel_mid_check() -> list[httpx.Response]:
+    async def cancel_mid_check() -> list[httpx2.Response]:
         holder = asyncio.create_task(
             _logins(anon_client.app, ATTACKER, ["guess"]))
         while not checks:
@@ -255,7 +255,7 @@ def test_a_deadline_around_the_request_cuts_the_wait_not_the_check(
     checks = _count_checks(monkeypatch, pause_s=0.3)
     throttle, _ = _frozen_throttle(anon_client.app)
 
-    async def under_a_deadline() -> tuple[float, httpx.Response]:
+    async def under_a_deadline() -> tuple[float, httpx2.Response]:
         start = time.monotonic()
         with anyio.move_on_after(0.05):
             await _logins(anon_client.app, ATTACKER, ["guess"])

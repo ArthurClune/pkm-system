@@ -3,7 +3,7 @@ import os
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from fake_engine import FakeEngine
 from fastapi.testclient import TestClient
@@ -196,40 +196,40 @@ def describe_disabled_client(seeded_config) -> Iterator[TestClient]:
         yield c
 
 
-async def _asgi_get_all(app, cookies, urls, headers) -> list[httpx.Response]:
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver",
+async def _asgi_get_all(app, cookies, urls, headers) -> list[httpx2.Response]:
+    transport = httpx2.ASGITransport(app=app)
+    async with httpx2.AsyncClient(transport=transport, base_url="http://testserver",
                                  cookies=cookies, headers=headers) as c:
         return [await c.get(u) for u in urls]
 
 
 def asgi_get_all(app, cookie: str, urls: list[str],
-                 headers: dict[str, str] | None = None) -> list[httpx.Response]:
+                 headers: dict[str, str] | None = None) -> list[httpx2.Response]:
     """GET each url through the ASGI app, logged in with `cookie`. Not
     `TestClient`: starlette's decodes the percent-escapes in a path a
     second time before routing, so a file called `%41` would be served as
-    `A`; uvicorn decodes once, as `httpx.ASGITransport` does. Use this for
+    `A`; uvicorn decodes once, as `httpx2.ASGITransport` does. Use this for
     any test whose path carries a literal percent sign."""
     return asyncio.run(_asgi_get_all(app, {"pkm_session": cookie}, urls, headers))
 
 
 def single_decode_get(client: TestClient, url: str,
-                      headers: dict[str, str] | None = None) -> httpx.Response:
+                      headers: dict[str, str] | None = None) -> httpx2.Response:
     """`asgi_get_all` for one url, reusing a logged-in TestClient's app."""
     return asgi_get_all(client.app, client.cookies["pkm_session"], [url], headers)[0]
 
 
 def asgi_request(app, method: str, path: str, cookie: str | None = None,
-                 raise_app_exceptions: bool = True) -> httpx.Response:
+                 raise_app_exceptions: bool = True) -> httpx2.Response:
     """One `method` request for `path` through the ASGI app, decoded once as
     `asgi_get_all` explains. Anonymous unless `cookie` is given. With
     `raise_app_exceptions` off an unhandled error becomes a 500 response, so
     its body can still be inspected."""
     async def run():
-        transport = httpx.ASGITransport(
+        transport = httpx2.ASGITransport(
             app=app, raise_app_exceptions=raise_app_exceptions)
         cookies = {"pkm_session": cookie} if cookie else None
-        async with httpx.AsyncClient(transport=transport, cookies=cookies,
+        async with httpx2.AsyncClient(transport=transport, cookies=cookies,
                                      base_url="http://testserver") as c:
             return await c.request(method, path)
     return asyncio.run(run())

@@ -240,7 +240,7 @@ def test_unknown_key_refusal_is_one_line(brk):
 
 
 def test_a_declared_alias_is_not_unknown(monkeypatch):
-    from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 
     from pkm.assistant import write_preview
     monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "stub",
@@ -501,9 +501,9 @@ def _stub_tool(text: str, json: str | None = None) -> str:
 
 
 def test_param_shadowing_a_model_method_previews_its_value(monkeypatch):
-    # FastMCP renames a param that shadows a BaseModel attribute (`json`)
+    # MCPServer renames a param that shadows a BaseModel attribute (`json`)
     # to `field_json` with an alias; the preview must read it by the alias.
-    from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 
     from pkm.assistant import write_preview
     monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "stub",
@@ -515,7 +515,7 @@ def test_param_shadowing_a_model_method_previews_its_value(monkeypatch):
 
 
 def test_importing_the_builder_leaves_logging_alone():
-    # The web server imports this module; FastMCP() calls
+    # The web server imports this module; MCPServer() calls
     # logging.basicConfig, which would add a root handler that sends every
     # library's INFO lines to production's stderr file.
     probe = ("import logging\n"
@@ -858,7 +858,7 @@ def _uid_stub_tool(uid: BlockUid) -> str:
 def test_a_uid_outside_the_current_text_entries_is_not_read(monkeypatch):
     # a write whose `uid` names a block it does not replace, move or
     # delete gets no current-text row, so its uid is not read
-    from mcp.server.fastmcp.utilities.func_metadata import func_metadata
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
 
     from pkm.assistant import write_preview
     monkeypatch.setitem(write_preview.WRITE_PREVIEW_FIELDS, "stub",

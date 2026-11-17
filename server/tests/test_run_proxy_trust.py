@@ -5,7 +5,7 @@ production sees: Tailscale Serve reaches the loopback listener and sets the
 header; the Tailscale-IP listener has no proxy in front of it."""
 import asyncio
 
-import httpx
+import httpx2
 import pytest
 
 from pkm.server import run
@@ -27,9 +27,12 @@ def _throttle_key_after_wrong_password(config, peer: str,
     cfg.load()
 
     async def post() -> int:
-        transport = httpx.ASGITransport(app=cfg.loaded_app,
-                                        client=(peer, 50000))
-        async with httpx.AsyncClient(transport=transport,
+        # uvicorn types its middleware with its own ASGI TypedDicts, httpx
+        # with MutableMapping; the two are compatible at runtime only.
+        transport = httpx2.ASGITransport(
+            app=cfg.loaded_app,  # pyrefly: ignore[bad-argument-type]
+            client=(peer, 50000))
+        async with httpx2.AsyncClient(transport=transport,
                                      base_url="http://testserver") as c:
             r = await c.post("/api/login", json={"password": "nope"},
                              headers=headers)

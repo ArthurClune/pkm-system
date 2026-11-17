@@ -3,7 +3,8 @@ import json
 
 import pytest
 from mcp import types
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from pkm.planning import BuildError
 from pkm.client.core import ApiError
@@ -52,7 +53,7 @@ def test_main_names_an_empty_tool_name(arg):
 
 def test_main_passes_tools_through(monkeypatch):
     ran = []
-    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: ran.append(self))
+    monkeypatch.setattr(MCPServer, "run", lambda self, *a, **k: ran.append(self))
     mcp_server.main(["--tools", "get_page,search"])
     mcp_server.main([])
     assert _listed(ran[0]) == {"get_page", "search"}
@@ -138,7 +139,7 @@ def test_every_read_tool_is_plain_text_with_the_declared_size():
     listed = {t.name: t
               for t in asyncio.run(mcp_server.build_server().list_tools())}
     for name in READ_TOOL_NAMES:
-        assert listed[name].outputSchema is None, name
+        assert listed[name].output_schema is None, name
         assert listed[name].meta == {
             "anthropic/maxResultSizeChars": mcp_tools.MAX_RESULT_CHARS}, name
     for name in set(listed) - set(READ_TOOL_NAMES):
@@ -197,18 +198,12 @@ def test_list_tools_under_default_budget_are_unchanged(
     assert all("(Partial list:" not in o for o in out.values())
 
 
-def test_get_page_through_fastmcp_has_no_structured_wrapper(tools):
+def test_get_page_through_mcpserver_has_no_structured_wrapper(tools):
     server = mcp_server.build_server(["get_page"])
-    request = types.CallToolRequest(params=types.CallToolRequestParams(
-        name="get_page", arguments={"title": "Machine Learning"}))
-    handler = server._mcp_server.request_handlers[types.CallToolRequest]
-
-    async def call() -> types.ServerResult:
-        return await handler(request)
-
-    result = asyncio.run(call()).root
+    result = asyncio.run(server.call_tool(
+        "get_page", {"title": "Machine Learning"}))
     assert isinstance(result, types.CallToolResult)
-    assert result.structuredContent is None
+    assert result.structured_content is None
     [content] = result.content
     assert isinstance(content, types.TextContent)
     assert content.text == tools.get_page("Machine Learning")
@@ -221,7 +216,7 @@ def test_get_page_under_default_budget_is_unchanged(tools, pkm_client):
 
 
 def test_main_passes_max_chars_through(monkeypatch):
-    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: None)
+    monkeypatch.setattr(MCPServer, "run", lambda self, *a, **k: None)
     monkeypatch.setattr(mcp_tools, "_max_chars", mcp_tools._max_chars)
     mcp_server.main(["--max-chars", "1234"])
     assert mcp_tools._max_chars == 1234
@@ -233,7 +228,7 @@ def test_main_rejects_a_non_positive_max_chars():
 
 
 def test_main_rejects_max_chars_over_the_declared_result_limit(monkeypatch):
-    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: None)
+    monkeypatch.setattr(MCPServer, "run", lambda self, *a, **k: None)
     monkeypatch.setattr(mcp_tools, "_max_chars", mcp_tools._max_chars)
     limit = mcp_tools.MAX_RESULT_CHARS
     mcp_server.main(["--max-chars", str(limit)])
@@ -651,7 +646,7 @@ def test_batch_reused_alias_raises(tools):
 
 
 @pytest.mark.parametrize("as_json", [False, True])
-def test_update_block_expect_through_fastmcp(tools, pkm_client, as_json):
+def test_update_block_expect_through_mcpserver(tools, pkm_client, as_json):
     uid = uid_of("expect-mcp")
     pkm_client.post_ops([{"op": "create", "uid": uid, "page_title": "ExpMcp",
                           "parent_uid": None, "order_idx": 0,
@@ -674,10 +669,34 @@ def test_update_block_expect_through_fastmcp(tools, pkm_client, as_json):
     assert pkm_client.get_block(uid).block.text == "new"
 
 
+
+def test_a_tool_error_keeps_its_text_for_the_model(monkeypatch):
+    """MCPServer hides the text of any exception but ToolError; the tools'
+    refusals and the server's rejections are what the model must read."""
+    def refuse(name: str) -> str:
+        """Always refuses."""
+        raise ValueError(f"no page {name!r}")
+
+    monkeypatch.setattr(mcp_server, "TOOLS", (refuse,))
+    server = mcp_server.build_server()
+    with pytest.raises(ToolError) as caught:
+        asyncio.run(server.call_tool("refuse", {"name": "X"}))
+    assert str(caught.value) == "Error executing tool refuse: no page 'X'"
+    assert type(caught.value) is ToolError
+
+
+def test_reported_refuses_an_async_tool():
+    async def later() -> str:
+        return ""
+
+    with pytest.raises(TypeError, match="later: _reported wraps sync tools"):
+        mcp_server._reported(later)  # pyrefly: ignore[bad-argument-type]
+
+
 # -- the assistant's subprocess: a guarded write needs the card's expect ---
 
 def test_main_require_expect_flag(monkeypatch):
-    monkeypatch.setattr(FastMCP, "run", lambda self, *a, **k: None)
+    monkeypatch.setattr(MCPServer, "run", lambda self, *a, **k: None)
     monkeypatch.setattr(mcp_tools, "_require_expect", False)
     mcp_server.main(["--tools", "update_block"])
     assert mcp_tools._require_expect is False

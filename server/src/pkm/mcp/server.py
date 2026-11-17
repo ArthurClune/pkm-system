@@ -1,13 +1,16 @@
 # pattern: Imperative Shell
 """`pkm-mcp`: MCP stdio server exposing the PKM to MCP clients (Claude
-Desktop, claude.ai). It registers `pkm.mcp.tools` on a `FastMCP`; the
+Desktop, claude.ai). It registers `pkm.mcp.tools` on an `MCPServer`; the
 tools themselves, and their LLM-facing docstrings, live there."""
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+import functools
+import inspect
+from collections.abc import Callable, Sequence
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from pkm.mcp.names import READ_TOOL_NAMES
 from pkm.mcp.tools import (DEFAULT_MAX_CHARS, MAX_RESULT_CHARS, TOOLS,
@@ -16,7 +19,29 @@ from pkm.mcp.tools import (DEFAULT_MAX_CHARS, MAX_RESULT_CHARS, TOOLS,
 _RESULT_META = {"anthropic/maxResultSizeChars": MAX_RESULT_CHARS}
 
 
-def build_server(names: Sequence[str] | None = None) -> FastMCP:
+def _reported(fn: Callable[..., str]) -> Callable[..., str]:
+    """`fn`, with anything it raises re-raised as a `ToolError` carrying
+    the same text. MCPServer shows the model only `Error executing tool
+    <name>` for any other exception, and the tools' refusals and the
+    server's rejections are messages the model and the approval panel
+    read. `functools.wraps` keeps the signature MCPServer builds the
+    argument model from. The wrapper is synchronous, so an `async def`
+    tool is refused here rather than registered to return a coroutine."""
+    if inspect.iscoroutinefunction(fn):
+        raise TypeError(f"{fn.__name__}: _reported wraps sync tools only")
+
+    @functools.wraps(fn)
+    def tool(*args: object, **kwargs: object) -> str:
+        try:
+            return fn(*args, **kwargs)
+        except ToolError:
+            raise
+        except Exception as exc:
+            raise ToolError(str(exc)) from exc
+    return tool
+
+
+def build_server(names: Sequence[str] | None = None) -> MCPServer:
     """A server registering the `TOOLS` named in `names`, or all of them.
     A server built from a subset never has the rest: an unregistered tool
     cannot be called, whatever a client's permission gate decides."""
@@ -25,15 +50,16 @@ def build_server(names: Sequence[str] | None = None) -> FastMCP:
     if unknown:
         raise ValueError(
             f"unknown MCP tool(s): {', '.join(map(repr, unknown))}")
-    server = FastMCP("pkm")
+    server = MCPServer("pkm")
     for fn in TOOLS:
         if names is None or fn.__name__ in names:
-            # Plain text, not FastMCP's default `{"result": ...}`: Claude
+            # Plain text, not MCPServer's default `{"result": ...}`: Claude
             # Code measures and hands on that JSON, whose escaping makes it
             # longer than the budget pkm-mcp held the text to.
             bounded = fn.__name__ in READ_TOOL_NAMES
             server.tool(structured_output=False if bounded else None,
-                        meta=_RESULT_META if bounded else None)(fn)
+                        meta=_RESULT_META if bounded else None)(
+                            _reported(fn))
     return server
 
 

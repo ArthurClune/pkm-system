@@ -456,11 +456,15 @@ async def _call_asgi(app, cookie, method, path, body, mode):
     reads = []
 
     async def receive():
-        # The request body arrives first; the client leaves after that.
+        # The request body arrives first. After it a server's receive
+        # blocks until the client leaves, and FileResponse keeps a receive
+        # pending throughout the send to notice that.
         reads.append(1)
-        if mode == "disconnect" and len(reads) > 1:
+        if len(reads) == 1:
+            return {"type": "http.request", "body": body, "more_body": False}
+        if mode == "disconnect":
             return {"type": "http.disconnect"}
-        return {"type": "http.request", "body": body, "more_body": False}
+        await asyncio.Event().wait()
 
     async def send(message):
         if mode == "raise" and message["type"] == "http.response.body":

@@ -6,7 +6,7 @@ U+001C-U+001F separators) are not whitespace to a title and stay byte-exact.
 """
 import asyncio
 
-import httpx
+import httpx2
 import pytest
 
 from pkm.client.api import PkmClient
@@ -32,14 +32,14 @@ def active(request, seeded_config) -> bool:
 
 
 def _send(client, method: str, path: str,
-          json: dict | None = None) -> httpx.Response:
+          json: dict | None = None) -> httpx2.Response:
     """`method` on `path` decoded once, as uvicorn does. TestClient decodes
     a path's percent-escapes twice."""
     cookie = client.cookies["pkm_session"]
 
     async def run():
-        transport = httpx.ASGITransport(app=client.app)
-        async with httpx.AsyncClient(
+        transport = httpx2.ASGITransport(app=client.app)
+        async with httpx2.AsyncClient(
                 transport=transport, base_url="http://testserver",
                 cookies={"pkm_session": cookie}) as c:
             return await c.request(method, path, json=json)

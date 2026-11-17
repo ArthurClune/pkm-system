@@ -204,7 +204,7 @@ def _expected_digest(inventory: TitleMigrationInventory) -> str:
             "sidebar_retitles": len(sidebar_retitles),
             "sidebars": len(sidebars),
         },
-        "groups": sorted(groups, key=lambda group: (group["canonical_title"], group["survivor"]["page_id"])),
+        "groups": sorted(groups, key=lambda group: str(group["canonical_title"])),
         "pages": [{"page_id": page.page_id, "title": page.title} for page in pages],
         "refs": [
             {

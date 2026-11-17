@@ -97,15 +97,21 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
   const getBlocks = useCallback(() => blocksRef.current, []);
   const seededRef = useRef(false);
   const createFirstBlock = outline.createFirstBlock;
+  const editorWaiting = outline.editorWaiting;
+  // A mount waiting for the editor drops the marker unused: seeding later,
+  // when the other mount closes, would rewrite a template the reader may
+  // have undone there.
   useEffect(() => {
-    if (!seedTemplate || !canReveal || seededRef.current) return;
+    if (!seedTemplate || seededRef.current) return;
+    if (!canReveal && !editorWaiting) return;
     seededRef.current = true;
-    if (blocksRef.current.length === 0
+    if (canReveal && blocksRef.current.length === 0
         && templateFor(title, PAGE_TEMPLATES) !== null) {
       createFirstBlock();
     }
     onSeedTemplateHandled?.();
-  }, [seedTemplate, canReveal, title, createFirstBlock, onSeedTemplateHandled]);
+  }, [seedTemplate, canReveal, editorWaiting, title, createFirstBlock,
+      onSeedTemplateHandled]);
 
   const uploadOutlineFiles = outline.onDropFiles;
   const onDropFiles = useCallback((files: File[], target: DropTarget) => {

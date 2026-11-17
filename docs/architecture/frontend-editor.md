@@ -372,7 +372,9 @@ template gets one empty block. `templates/load.ts` bundles the files with
 history, back/forward, a bookmark or a reload. So the marker is used once.
 `EditablePage` acts on `seedTemplate` when its outline is editable,
 creating the template only if the page is empty and has one. It then calls
-`onSeedTemplateHandled`. `PageView` replaces the history entry without
+`onSeedTemplateHandled`. A mount waiting for another mount's editor lease
+(`useOutline`'s `editorWaiting`) drops the marker unused: seeding when the
+lease passes to it would rewrite a template the reader undid in the other. `PageView` replaces the history entry without
 its state, and `App` clears the entry's `seed`, so a reload or a re-shown
 sidebar panel does not seed again. Only a title with a template gets a
 marker, so other navigations carry no state.

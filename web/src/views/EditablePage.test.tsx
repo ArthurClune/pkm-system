@@ -1663,3 +1663,23 @@ test("seedTemplate waits for an editable outline", () => {
   expect(createRows(online.sent[0])).toEqual(PAPER_SEEDS);
   expect(onHandled).toHaveBeenCalledTimes(1);
 });
+
+test("seedTemplate on a mount waiting for the editor drops the marker", () => {
+  const sync = makeSync();
+  const onHandled = vi.fn();
+  const view = (both: boolean) => (
+    <MemoryRouter>
+      <SyncContext.Provider value={sync}>
+        {both && <EditablePage title={canonicalTitleOf("Paper/X")} initial={[]} />}
+        <EditablePage title={canonicalTitleOf("Paper/X")} initial={[]}
+                      seedTemplate onSeedTemplateHandled={onHandled} />
+      </SyncContext.Provider>
+    </MemoryRouter>);
+  const { rerender } = render(view(true));
+  expect(onHandled).toHaveBeenCalledTimes(1);
+  expect(sync.sent).toHaveLength(0);
+  // The editor passes to the marked mount; the page is still empty, and
+  // the marker was already dropped, so nothing is written.
+  rerender(view(false));
+  expect(sync.sent).toHaveLength(0);
+});

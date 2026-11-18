@@ -523,7 +523,7 @@ def check_write(short: str, tool_input: Mapping[str, object]
     reason the model can act on. Never raises."""
     try:
         checked = _validate(short, copy.deepcopy(dict(tool_input)))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - documented never-raises boundary
         # The type only: the message can quote the attacker's input.
         logger.warning("checking the input of %s failed: %s", short,
                        type(exc).__name__)
@@ -628,7 +628,7 @@ def build_write_preview(checked: CheckedWrite,
     `check_write`."""
     try:
         out = _build(checked, blocks)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - documented never-raises boundary
         # The type only: the message can quote the attacker's input.
         logger.warning("write preview of %s failed: %s", checked.short,
                        type(exc).__name__)

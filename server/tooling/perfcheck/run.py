@@ -77,7 +77,7 @@ def _cwd(pid: int) -> str | None:
     except OSError:
         pass
     out = subprocess.run(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
-                         capture_output=True, text=True).stdout
+                         capture_output=True, text=True, check=False).stdout
     return next((line[1:] for line in out.splitlines() if line.startswith("n")), None)
 
 
@@ -172,7 +172,7 @@ class BackendRunner:
         out = self.repo / "perf" / "out" / "result-backend.json"
         out.unlink(missing_ok=True)
         cmd, env = self.command(worktree, only, commit, out)
-        proc = subprocess.run(cmd, env=env, cwd=worktree / "server", stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run(cmd, env=env, cwd=worktree / "server", stderr=subprocess.PIPE, text=True, check=False)
         sys.stderr.write(proc.stderr)
         if proc.returncode:
             _fail_if_import_missing(proc.stderr, commit, "backend")

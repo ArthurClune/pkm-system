@@ -539,7 +539,7 @@ def test_the_one_canonicalisation_guard_survives_optimisation():
         "    raise SystemExit(0)\n"
         "raise SystemExit(1)\n")
     done = subprocess.run([sys.executable, "-O", "-c", code],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr
 
 

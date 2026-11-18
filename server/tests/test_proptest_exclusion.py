@@ -15,7 +15,7 @@ UNMARKED = {
 def _collect(*args):
     return subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q",
                            "--no-cov", *args, "tests/props"],
-                          cwd=SERVER, capture_output=True, text=True)
+                          cwd=SERVER, capture_output=True, text=True, check=False)
 
 
 def _carries_proptest_mark(path: Path) -> bool:

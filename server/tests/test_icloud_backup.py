@@ -206,12 +206,12 @@ def test_script_runs_under_system_python(env, tmp_path):
     run = subprocess.run(
         [str(py), str(SCRIPT), "backup", "--dest", str(dest), "--data-dir", str(data),
          "--sqlite-backups", str(snaps), "--today", "2026-10-01"],
-        capture_output=True, text=True)
+        capture_output=True, text=True, check=False)
     assert run.returncode == 0, run.stderr
     out = tmp_path / "r"
     run = subprocess.run(
         [str(py), str(SCRIPT), "restore", "--dest", str(dest), "--date", "2026-10-01",
-         "--out", str(out)], capture_output=True, text=True)
+         "--out", str(out)], capture_output=True, text=True, check=False)
     assert run.returncode == 0, run.stderr
     assert "session_secret" in json.loads((out / "config.json").read_text())
     assert tree_has(dest, SECRET) == []

@@ -22,6 +22,7 @@ def test_since_date_is_local_midnight():
 
 def test_until_date_is_local_midnight_exclusive():
     since_ms, until_ms = parse_window("2026-09-23", "2026-09-24", NOW, TZ)
+    assert since_ms == _ms(datetime(2026, 9, 23, 0, 0, tzinfo=TZ))
     assert until_ms == _ms(datetime(2026, 9, 24, 0, 0, tzinfo=TZ))
 
 

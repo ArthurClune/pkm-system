@@ -207,7 +207,7 @@ class FakeConversation:
         try:
             await asyncio.to_thread(self._run_tool, "update_block",
                                     tool_input)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - the double returns whatever the tool raised
             return exc
         return None
 

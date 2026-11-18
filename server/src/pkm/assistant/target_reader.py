@@ -121,7 +121,7 @@ async def preview_write(short: str, tool_input: Mapping[str, object],
             blocks = await asyncio.to_thread(
                 read_blocks, uids,
                 target_uids(checked, SUBTREE_DELETE_ENTRIES), parents)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - boundary: any failure is an unreadable card
         # The type only: a database error can name paths and quote SQL.
         logger.warning("reading the targets of %s failed: %s", short,
                        type(exc).__name__)
@@ -131,7 +131,7 @@ async def preview_write(short: str, tool_input: Mapping[str, object],
         return preview
     try:
         approved = approved_input(checked, blocks)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - boundary: any failure is an unreadable card
         # Never a card whose Allow would carry a weaker guard than it shows.
         logger.warning("the expectations of %s failed: %s", short,
                        type(exc).__name__)

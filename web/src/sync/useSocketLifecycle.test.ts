@@ -1,5 +1,4 @@
 import { act, renderHook } from "@testing-library/react";
-import { createElement, StrictMode, type ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import { clientIdOf, FakeWebSocket } from "../test-helpers";
 import { createSyncSession, type SyncSession } from "./session";
@@ -29,9 +28,6 @@ function startedSession(): SyncSession {
   void session.startup();
   return session;
 }
-
-const strict = ({ children }: { children: ReactNode }) =>
-  createElement(StrictMode, null, children);
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -77,8 +73,12 @@ test("a StrictMode replay keeps the session", async () => {
   const dispose = vi.spyOn(session, "dispose");
   const disposeOwned = vi.fn();
   const mountedRef = { current: false };
+  // reactStrictMode puts StrictMode at the root: React 19 replays no mount
+  // effects under a StrictMode that a wrapper component renders.
   renderHook(() => useSocketLifecycle({ session, mountedRef, disposeOwned }),
-             { wrapper: strict });
+             { reactStrictMode: true });
+  const [first] = FakeWebSocket.instances.slice(-2);
+  expect(first.closedByApp).toBe(true);
   // Past the microtask a deferred dispose would run in, and past the
   // closed first socket's onclose.
   await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
@@ -96,7 +96,7 @@ async () => {
   const session = startedSession();
   renderHook(() => useSocketLifecycle({
     session, mountedRef: { current: false }, disposeOwned: () => undefined,
-  }), { wrapper: strict });
+  }), { reactStrictMode: true });
   const [first, replayed] = FakeWebSocket.instances.slice(-2);
   expect(first.closedByApp).toBe(true);
 

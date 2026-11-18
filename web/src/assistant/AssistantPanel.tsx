@@ -177,7 +177,7 @@ function ConfirmCard({
   pending: PendingConfirm;
   count: number;
   onAnswer: (allow: boolean) => void;
-  scrollerRef: RefObject<HTMLDivElement>;
+  scrollerRef: RefObject<HTMLDivElement | null>;
 }) {
   const { preview, allowedAhead } = pending;
   const cardRef = useRef<HTMLDivElement>(null);

@@ -1,12 +1,12 @@
 {
   "limits": {
-    "initialEntryBytes": 506800,
+    "initialEntryBytes": 600000,
     "largestAssetBytes": 1610125,
-    "totalOutputBytes": 9960149,
-    "precacheBytes": 9016813,
+    "totalOutputBytes": 10590000,
+    "precacheBytes": 9660000,
     "precacheEntries": 122,
     "mermaidOwnedBytes": 3461961,
-    "pdfjsOwnedBytes": 486845,
+    "pdfjsOwnedBytes": 680000,
     "katexOwnedBytes": 271724,
     "beautifulMermaidOwnedBytes": 1610125,
     "hljsOwnedBytes": 169844

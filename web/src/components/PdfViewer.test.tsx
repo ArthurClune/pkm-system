@@ -72,8 +72,9 @@ vi.mock("react-pdf", async () => {
     getPage: () =>
       Promise.resolve({ getViewport: () => ({ width: 612, height: 792 }) }),
   };
-  function Document({ file, onLoadSuccess, onLoadError, loading, children }: {
+  function Document({ file, onLoadSuccess, onLoadError, loading, suspense, children }: {
     file?: string;
+    suspense?: boolean;
     onLoadSuccess?: (pdf: {
       numPages: number;
       getPage: () => Promise<{ getViewport: (o: { scale: number }) => Viewport }>;
@@ -108,6 +109,9 @@ vi.mock("react-pdf", async () => {
       else onLoadSuccess?.(fakePdf);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file]);
+    // react-pdf 11 suspends by default and throws a failed load to the
+    // nearest error boundary, never reaching onLoadError or `loading`.
+    if (suspense !== false) throw new Error("Document needs suspense={false}");
     if (!settled) return <>{loading}</>;
     return <div data-testid="pdf-document">{children}</div>;
   }

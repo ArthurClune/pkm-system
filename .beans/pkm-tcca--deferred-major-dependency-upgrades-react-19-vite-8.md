@@ -17,5 +17,5 @@ Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each 
 - [x] katex 0.18 to 0.19 (pkm-adqc): re-check that it still refuses links and images. The katex override in pnpm-workspace.yaml must keep one katex install.
 - [x] jsdom 26 to 31 for the unit suite (pkm-mfj7).
 - [x] @playwright/test 1.61 to 1.65 (pkm-kyle). It is pinned exactly because 1.65 needs a newer cached browser.
-- [ ] websockets 16 to 17 on the server. It is bounded <17 in server/pyproject.toml: only uvicorn's WS transport uses it, which pytest does not reach, so the check is the Playwright suite plus a live sync session.
+- [x] websockets 16 to 17 on the server (pkm-3n8b). It is bounded <17 in server/pyproject.toml: only uvicorn's WS transport uses it, which pytest does not reach, so the check is the Playwright suite plus a live sync session.
 - [ ] picomatch (high, ReDoS, reaching lint through typescript-eslint and tinyglobby) had no patched release on 2026-11-17; take it when one ships.

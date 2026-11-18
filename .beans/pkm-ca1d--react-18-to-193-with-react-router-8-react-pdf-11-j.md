@@ -42,3 +42,13 @@ Part of pkm-tcca. React 18.3.1 has had no release since April 2024; 19.0-19.3 ar
   pdfjsOwnedBytes 486845 -> 680000, totalOutputBytes 9960149 -> 10590000,
   precacheBytes 9016813 -> 9660000 (pdf.js 6 via react-pdf 11: chunk
   421973 -> 650195, worker 1046214 -> 1271915).
+- Forward to a page lost its scroll offset (e2e history-scroll "back and
+  forward restore each page's scroll offset": `Expected: 700 Received: 0`).
+  react-router 8's BrowserRouter updates the location in startTransition, and
+  React 19 commits a transition started in a popstate as soon as that listener
+  returns, so useHistoryScrollRestore's popstate listener, added later in a
+  useEffect, recorded the outgoing offset under the incoming key. Chromium
+  ran the listeners in the order added despite the capture flag. The
+  listeners are now added in a useLayoutEffect, which runs before
+  BrowserRouter's (a parent) subscribes. jsdom cannot show the order, so the
+  e2e spec is the regression test; the rule is in the hook's header.

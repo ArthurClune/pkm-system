@@ -13,15 +13,23 @@
 // A scroll event is dispatched on the next frame, so the last scroll before
 // a back or forward in the same frame would arrive after the key has moved
 // and be dropped. The outgoing offset is therefore also recorded at
-// popstate, in the capture phase, which runs before react-router's own
-// listener renders the incoming entry.
+// popstate, by a listener that must run before react-router's: BrowserRouter
+// updates the location in a transition, which React 19 commits during a
+// popstate as soon as that listener returns, so a later listener sees the
+// incoming entry's key and an offset already clamped by "Loading…". (A test's
+// dispatchEvent runs every listener before that commit; only a browser shows
+// the order, in e2e/history-scroll.spec.ts.) Chromium runs window's
+// popstate listeners in the order they were added, whatever their capture
+// flag, so ours is added in a layout effect: this hook sits under the
+// router, and a child's layout effects run before the parent's, where
+// BrowserRouter subscribes.
 //
 // The key lives in history.state. react-router keys every entry it pushes,
 // but gives the tab's first entry the location key "default" without
 // writing it there, so every fresh load would share one key; that entry is
 // given a key of its own. A reload keeps history.state, and the offsets are
 // saved to sessionStorage on pagehide, so a reload restores too.
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useLocation, useNavigationType, type NavigationType } from "react-router";
 import { parseScrollOffsets, serializeScrollOffsets } from "./historyScroll";
 import { PIN_QUIET_MS, READER_INPUT } from "./useScrollFlashTarget";
@@ -109,7 +117,7 @@ export function useHistoryScrollRestore(content: RefObject<HTMLElement | null>):
   const current = useRef<string | null>(null);
   const pinning = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = window.history.scrollRestoration;
     window.history.scrollRestoration = "manual";
     const onScroll = () => {

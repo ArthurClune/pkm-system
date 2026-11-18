@@ -1,6 +1,6 @@
 allowBuilds:
   esbuild: true
-# Force a single katex install: mermaid@11.16.1 asks for katex ^0.16.45,
+# Force a single katex install: mermaid@11.17.2 asks for katex ^0.16.47,
 # which otherwise ships as a second ~260KB lazy chunk alongside our direct
 # katex@0.19.1 dependency.
 overrides:

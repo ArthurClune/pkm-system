@@ -166,15 +166,6 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
     () => floatingToc === null ? null : tocEntries(outline.blocks, floatingToc),
     [outline.blocks, floatingToc]);
 
-  const tree = (
-    <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
-                       selection={outline.selection} handlers={handlers}
-                       readOnly={outline.readOnly || !ownsEditor}
-                       fallback={!ownsEditor} stamps={stamps}
-                       refCounts={refCounts}
-                       onPickerNotice={setPickerNotice} />
-  );
-
   return (
     <div ref={containerRef}
          className={ownsEditor ? "outline-drop-zone" : undefined}
@@ -201,14 +192,21 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
         </div>
       ) : (
         <FloatingTocContext.Provider value={floatingToc}>
-          {floatingEntries === null ? tree : (
-            <div className="outline-with-toc">
-              {tree}
+          {/* One wrapper whether or not the toc floats: swapping the
+              element type here would remount every row, reloading embeds. */}
+          <div className={floatingEntries === null ? undefined : "outline-with-toc"}>
+            <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
+                               selection={outline.selection} handlers={handlers}
+                               readOnly={outline.readOnly || !ownsEditor}
+                               fallback={!ownsEditor} stamps={stamps}
+                               refCounts={refCounts}
+                               onPickerNotice={setPickerNotice} />
+            {floatingEntries !== null && (
               <aside className="toc-float">
                 <TableOfContents entries={floatingEntries} />
               </aside>
-            </div>
-          )}
+            )}
+          </div>
         </FloatingTocContext.Provider>
       )}
       {ownsEditor && indicator && (

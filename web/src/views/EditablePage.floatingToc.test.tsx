@@ -109,3 +109,14 @@ test("a heading edit shows in the floating list", () => {
   fireEvent.keyDown(ta, { key: "Escape" });
   expect(linkTexts(aside(container))).toEqual(["Introduction", "Body"]);
 });
+
+// A swap that remounted the tree would reload every embed on the page and
+// drop the textarea's own undo history and any IME composition.
+test("floating and unfloating keep the outline's rows mounted", () => {
+  const { container, rerender } = render(view(true));
+  const before = row(container, "tuid-h2");
+  rerender(view(false));
+  expect(row(container, "tuid-h2")).toBe(before);
+  rerender(view(true));
+  expect(row(container, "tuid-h2")).toBe(before);
+});

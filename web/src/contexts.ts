@@ -78,6 +78,11 @@ export const BlockStampsContext = createContext<BlockStampsApi>({
  * above (a bare row in a test) simply has no tree to walk. */
 export const RootBlocksContext = createContext<BlockNode[]>([]);
 
+/** True while the main pane has room for a floating toc and the right
+ * sidebar is closed (useTocFloatRoom, provided by App around the main
+ * routes). Only an EditablePage with `floatToc` reads it. */
+export const TocFloatRoomContext = createContext(false);
+
 /** True inside popover rows whose whole row is a navigation target:
  * embedded media renders inert — no expand trigger — so a
  * click anywhere in the row navigates instead of expanding. */

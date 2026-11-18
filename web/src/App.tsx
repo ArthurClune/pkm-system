@@ -17,7 +17,7 @@ import { SidebarNav } from "./components/SidebarNav";
 import { SidebarPanel } from "./components/SidebarPanel";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { TopBar } from "./components/TopBar";
-import { BlockStampsContext, SidebarContext } from "./contexts";
+import { BlockStampsContext, SidebarContext, TocFloatRoomContext } from "./contexts";
 import { DndProvider } from "./dnd/DndContext";
 import { FindBar } from "./find/FindBar";
 import { normalizeRefTitle } from "./grammar/scan";
@@ -35,6 +35,7 @@ import { Help } from "./views/Help";
 import { Journal } from "./views/Journal";
 import { PageView } from "./views/PageView";
 import { useHistoryScrollRestore } from "./useHistoryScrollRestore";
+import { useTocFloatRoom } from "./useTocFloatRoom";
 import { Settings } from "./views/Settings";
 
 interface SidebarEntry {
@@ -125,6 +126,7 @@ export function App() {
   // much room the center pane claims: the two must agree, or the
   // pane would stay narrow next to a sidebar that isn't actually there.
   const rightSidebarOpen = stack.length > 0 && !sidebarHidden;
+  const tocFloatRoom = useTocFloatRoom(mainRef, rightSidebarOpen);
 
   const sidebarApi = useMemo(() => ({
     openInSidebar: (title: RawTitle, uid?: BlockUid, seed?: SeedTemplateState) => {
@@ -265,7 +267,9 @@ export function App() {
               <div className="content-area">
                 <TopBar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
                 <main className="main-pane" ref={mainRef}>
-                  <MainRoutes />
+                  <TocFloatRoomContext.Provider value={tocFloatRoom}>
+                    <MainRoutes />
+                  </TocFloatRoomContext.Provider>
                 </main>
               </div>
               {rightSidebarOpen && (

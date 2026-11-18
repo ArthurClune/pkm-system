@@ -1,5 +1,5 @@
 {
-  "commit": "01e4981",
+  "commit": "1d07ac71+dirty",
   "env": {
     "chromium": "159.0.8154.6"
   },
@@ -73,11 +73,11 @@
       },
       "replica_ready_ms": {
         "class": "timing",
-        "value": 3536
+        "value": 3556
       },
       "requests": {
         "class": "exact",
-        "value": 13
+        "value": 14
       },
       "snapshot_requests": {
         "class": "exact",
@@ -122,7 +122,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 57
+        "value": 53.9
       },
       "not_prevented": {
         "class": "exact",
@@ -142,7 +142,7 @@
       },
       "handler_ms": {
         "class": "timing",
-        "value": 18.6
+        "value": 15.5
       },
       "not_prevented": {
         "class": "exact",
@@ -226,7 +226,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 255
+        "value": 259
       },
       "search_requests": {
         "class": "exact",
@@ -245,7 +245,7 @@
       },
       "results_ms": {
         "class": "timing",
-        "value": 171
+        "value": 170
       },
       "search_requests": {
         "class": "exact",
@@ -259,7 +259,7 @@
       },
       "first_outline_ms": {
         "class": "timing",
-        "value": 214
+        "value": 215
       },
       "requests": {
         "class": "exact",

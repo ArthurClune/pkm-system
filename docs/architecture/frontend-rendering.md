@@ -86,6 +86,14 @@ resolves two block-level shapes before this dispatch, `{{toc}}` (`TocBlock`,
 `tocEntries.ts`, `isTocMacro`) and a table macro (`roamTable`, rendered by
 `RoamTable`), both only while the row is unfocused.
 
+On the main page the first `{{toc}}` (`firstTocUid`) floats beside the
+outline instead, in `EditablePage`'s `aside.toc-float`. It floats only while
+App's `TocFloatRoomContext` says the right sidebar is closed and the pane is
+wide enough (`tocFloatRoom`). The row then renders a `.toc-marker`, because
+`EditablePage` names the floating uid in `FloatingTocContext`, so the list is
+on screen once. `PageView` opts in with `floatToc`; sidebar panels and
+journal days keep the card.
+
 ### Media in table cells
 
 A query's Table and Cards cells (`CellValue`) and a plain table's body cells

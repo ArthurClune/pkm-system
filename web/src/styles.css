@@ -816,6 +816,19 @@ a.tag:hover { color: var(--color-tag); text-decoration: none;
 .toc-link { color: var(--color-text-secondary); text-decoration: none; }
 .toc-link:hover { text-decoration: underline; }
 .toc-empty { color: var(--color-text-muted); font-style: italic; }
+/* The main page's first {{toc}} beside the outline (EditablePage). The
+ * column and gap widths are counted in FLOATING_TOC_MIN_PANE_PX
+ * (tocFloat.ts); change them together. Sticky needs every ancestor up to
+ * the scrolling document to leave overflow visible. */
+.outline-with-toc { display: grid; grid-template-columns: minmax(0, 1fr) 220px;
+  column-gap: 32px; }
+.toc-float { position: sticky; top: 16px; align-self: start;
+  max-height: calc(100vh - 32px); overflow-y: auto; }
+.toc-float .toc { display: block; min-width: 0; margin: 0; }
+.toc-float .toc-list { font-size: 13px; }
+/* the row's stand-in while its list floats: the card's title alone */
+.toc-marker { padding-bottom: 10px; }
+.toc-marker .toc-header { margin: 0; }
 
 /* == Block references and highlights == */
 .block-ref::before { content: ""; display: inline-block; width: 2px; height: 10px;

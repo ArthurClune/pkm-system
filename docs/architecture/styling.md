@@ -196,6 +196,10 @@ clear a rounded image corner. The exceptions, each commented in `styles.css`:
   `max-width` cap. The inner image resets to `max-width: 100%` so the caps do
   not multiply. The phone override back to full width must stay after those
   rules, because a media query adds no specificity.
+- **Floating toc.** `.toc-float` is `position: sticky` against the document's
+  scroll, so no ancestor between it and the document may set `overflow`.
+  The column and gap widths of `.outline-with-toc` are counted in
+  `FLOATING_TOC_MIN_PANE_PX`; change them together.
 - **Stacking.** Every `z-index` reads one of the `--z-*` tokens declared
   together on `:root` in `styles.css`, bottom to top. `styles.test.ts` ("the
   z-index scale") pins that order, so a new layer takes a token between its

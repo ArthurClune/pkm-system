@@ -81,3 +81,14 @@ export function tocEntries(blocks: BlockNode[], selfUid: BlockUid): TocEntry[] {
   walk(blocks, top);
   return top;
 }
+
+/** The toc block that floats beside a main-pane page: the first in
+ * pre-order, collapsed subtrees included, as `tocEntries` walks them. */
+export function firstTocUid(blocks: BlockNode[]): BlockUid | null {
+  for (const node of blocks) {
+    if (isTocMacro(node.text)) return node.uid;
+    const nested = firstTocUid(node.children);
+    if (nested !== null) return nested;
+  }
+  return null;
+}

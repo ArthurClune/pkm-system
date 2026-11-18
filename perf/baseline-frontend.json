@@ -1,5 +1,5 @@
 {
-  "commit": "1d07ac71+dirty",
+  "commit": "bbf4407c+dirty",
   "env": {
     "chromium": "159.0.8154.6"
   },
@@ -222,7 +222,7 @@
       "react_commits": {
         "class": "band",
         "max": 23,
-        "min": 23
+        "min": 22
       },
       "results_ms": {
         "class": "timing",
@@ -241,7 +241,7 @@
       "react_commits": {
         "class": "band",
         "max": 25,
-        "min": 25
+        "min": 24
       },
       "results_ms": {
         "class": "timing",

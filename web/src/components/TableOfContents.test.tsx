@@ -3,8 +3,9 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { expect, it } from "vitest";
-import { TableOfContents } from "./TableOfContents";
-import { uidOf } from "../test-helpers";
+import { TableOfContents, TocBlock } from "./TableOfContents";
+import { FloatingTocContext, RootBlocksContext } from "../contexts";
+import { block, uidOf } from "../test-helpers";
 import type { TocEntry } from "./tocEntries";
 
 function entry(entryUid: string, text: string, level: 1 | 2 | 3,
@@ -68,4 +69,28 @@ it("titles the card, before the list and before the empty state alike", () => {
 
   const empty = mount([]);
   expect(empty.querySelector("nav.toc > .toc-header + .toc-empty")).not.toBeNull();
+});
+
+// While its list floats beside the page, the block keeps only the card's
+// title, so the list is never on screen twice.
+it("renders a marker for the floating toc, the list for any other", () => {
+  const tree = [block("tuid-h", "Intro", { heading: 1 })];
+  const at = (floating: string) => render(
+    <MemoryRouter>
+      <RootBlocksContext.Provider value={tree}>
+        <FloatingTocContext.Provider value={uidOf(floating)}>
+          <TocBlock selfUid={uidOf("tuid-self")} />
+        </FloatingTocContext.Provider>
+      </RootBlocksContext.Provider>
+    </MemoryRouter>).container;
+
+  const marker = at("tuid-self");
+  expect(marker.querySelector(".toc-marker")?.textContent)
+    .toBe("Table of Contents");
+  expect(marker.querySelector("ol, a")).toBeNull();
+
+  const other = at("tuid-other");
+  expect(other.querySelector(".toc-marker")).toBeNull();
+  expect(Array.from(other.querySelectorAll("a.toc-link"))
+    .map((a) => a.textContent)).toEqual(["Intro"]);
 });

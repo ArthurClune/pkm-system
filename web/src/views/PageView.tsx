@@ -65,7 +65,7 @@ export function PageView() {
                       reveal={target} revealNavigation={key}
                       onRevealed={onRevealed}
                       seedTemplate={wantsTemplateSeed(seedState)}
-                      onSeedTemplateHandled={dropSeedMarker} />
+                      onSeedTemplateHandled={dropSeedMarker} floatToc />
       </article>
       <BacklinksSection
         key={`bl-${title}`}

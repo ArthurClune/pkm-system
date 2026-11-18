@@ -6,7 +6,7 @@
 import { useContext } from "react";
 import { Link } from "react-router";
 import type { BlockUid } from "../api/brands";
-import { RootBlocksContext } from "../contexts";
+import { FloatingTocContext, RootBlocksContext } from "../contexts";
 import { tocEntries, type TocEntry } from "./tocEntries";
 
 function TocItems({ entries }: { entries: TocEntry[] }) {
@@ -44,5 +44,13 @@ export function TableOfContents({ entries }: { entries: TocEntry[] }) {
  * branch reads it, which is what keeps every other row's memo intact. */
 export function TocBlock({ selfUid }: { selfUid: BlockUid }) {
   const blocks = useContext(RootBlocksContext);
+  const floating = useContext(FloatingTocContext);
+  if (floating === selfUid) {
+    return (
+      <div className="toc toc-marker">
+        <div className="toc-header">Table of Contents</div>
+      </div>
+    );
+  }
   return <TableOfContents entries={tocEntries(blocks, selfUid)} />;
 }

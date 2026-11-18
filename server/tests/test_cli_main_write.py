@@ -208,8 +208,9 @@ def test_upload_post_ops_failure_deletes_the_orphaned_asset(
         raise ApiError(500, "boom")
 
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
-    code, out, _err = run("upload", str(png), "-p", "AI")
+    code, out, err = run("upload", str(png), "-p", "AI")
     assert code == 1
+    assert "boom" in err
     assert out == ""  # success output withheld until the link actually lands
     assert pkm_client.search_assets("pic.png").total == 0
     assert not any("pic.png" in t for t in _page_texts(pkm_client, "AI"))

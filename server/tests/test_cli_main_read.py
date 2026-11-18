@@ -110,7 +110,8 @@ def test_get_page_markdown(run):
 
 
 def test_get_page_json(run):
-    _code, out, _ = run("get", "Machine Learning", "--json")
+    code, out, _ = run("get", "Machine Learning", "--json")
+    assert code == 0
     assert json.loads(out)["page"]["title"] == "Machine Learning"
 
 

@@ -1,10 +1,10 @@
 {
-  "commit": "7b51668",
+  "commit": "01e4981",
   "env": {
     "python": "3.12.10",
     "sqlite": "3.47.1"
   },
-  "fixture_hash": "f36fe685b4cdc480",
+  "fixture_hash": "37204a284003e70d",
   "scenarios": {
     "assets/range": {
       "bytes": {
@@ -17,7 +17,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.29
+        "value": 2.12
       },
       "statements": {
         "class": "exact",
@@ -43,7 +43,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.86
+        "value": 2.62
       },
       "statements": {
         "class": "exact",
@@ -69,7 +69,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.0
+        "value": 2.34
       },
       "statements": {
         "class": "exact",
@@ -95,7 +95,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 17.25
+        "value": 17.16
       },
       "statements": {
         "class": "exact",
@@ -121,7 +121,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 15.63
+        "value": 15.72
       },
       "statements": {
         "class": "exact",
@@ -147,7 +147,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 18.72
+        "value": 16.52
       },
       "statements": {
         "class": "exact",
@@ -173,7 +173,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 14.81
+        "value": 15.26
       },
       "statements": {
         "class": "exact",
@@ -199,7 +199,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 14.94
+        "value": 15.26
       },
       "statements": {
         "class": "exact",
@@ -225,7 +225,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.74
+        "value": 4.04
       },
       "statements": {
         "class": "exact",
@@ -251,7 +251,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.81
+        "value": 3.02
       },
       "statements": {
         "class": "exact",
@@ -277,7 +277,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.87
+        "value": 3.24
       },
       "statements": {
         "class": "exact",
@@ -303,7 +303,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.82
+        "value": 4.22
       },
       "statements": {
         "class": "exact",
@@ -329,7 +329,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.5
+        "value": 2.66
       },
       "statements": {
         "class": "exact",
@@ -355,7 +355,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.57
+        "value": 3.83
       },
       "statements": {
         "class": "exact",
@@ -381,7 +381,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.12
+        "value": 3.46
       },
       "statements": {
         "class": "exact",
@@ -407,7 +407,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.78
+        "value": 3.94
       },
       "statements": {
         "class": "exact",
@@ -433,7 +433,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.76
+        "value": 3.03
       },
       "statements": {
         "class": "exact",
@@ -459,7 +459,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 16.7
+        "value": 16.81
       },
       "statements": {
         "class": "exact",
@@ -485,7 +485,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 16.63
+        "value": 16.79
       },
       "statements": {
         "class": "exact",
@@ -511,7 +511,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.97
+        "value": 4.1
       },
       "statements": {
         "class": "exact",
@@ -537,7 +537,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 6.22
+        "value": 6.46
       },
       "statements": {
         "class": "exact",
@@ -563,7 +563,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 5.4
+        "value": 5.67
       },
       "statements": {
         "class": "exact",
@@ -589,7 +589,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.79
+        "value": 2.12
       },
       "statements": {
         "class": "exact",
@@ -615,7 +615,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 9.89
+        "value": 8.59
       },
       "statements": {
         "class": "exact",
@@ -641,7 +641,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 27.95
+        "value": 24.96
       },
       "statements": {
         "class": "exact",
@@ -667,7 +667,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 66.65
+        "value": 66.36
       },
       "statements": {
         "class": "exact",
@@ -693,7 +693,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 63.53
+        "value": 63.17
       },
       "statements": {
         "class": "exact",
@@ -719,7 +719,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 67.42
+        "value": 63.61
       },
       "statements": {
         "class": "exact",
@@ -745,7 +745,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.81
+        "value": 2.07
       },
       "statements": {
         "class": "exact",
@@ -771,7 +771,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 25.73
+        "value": 25.89
       },
       "statements": {
         "class": "exact",
@@ -797,7 +797,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.71
+        "value": 2.05
       },
       "statements": {
         "class": "exact",
@@ -823,7 +823,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 12.6
+        "value": 11.35
       },
       "statements": {
         "class": "exact",
@@ -849,7 +849,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 1.64
+        "value": 1.86
       },
       "statements": {
         "class": "exact",
@@ -875,7 +875,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 7.09
+        "value": 7.24
       },
       "statements": {
         "class": "exact",
@@ -901,7 +901,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 559.24
+        "value": 520.24
       },
       "statements": {
         "class": "exact",
@@ -927,7 +927,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 2.24
+        "value": 2.19
       },
       "statements": {
         "class": "exact",
@@ -953,7 +953,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.02
+        "value": 2.8
       },
       "statements": {
         "class": "exact",
@@ -979,7 +979,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 23.79
+        "value": 21.7
       },
       "statements": {
         "class": "exact",
@@ -1005,7 +1005,7 @@
       },
       "median_ms": {
         "class": "timing",
-        "value": 3.47
+        "value": 3.76
       },
       "statements": {
         "class": "exact",

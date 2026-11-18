@@ -1,12 +1,28 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MAX_PAGE_TITLE_CHARS, TITLE_LENGTH_NOTICE, describeTitleLength,
   titleLengthOver,
 } from "./titleLength";
 
-// Imported, not read with node:fs, as depthCap.test.ts does. Hand-edited;
-// server/tests/test_title_length_fixture.py replays it on the server.
-import fixture from "../../../shared/fixtures/title_length.json";
+interface TitleLengthCase {
+  name: string;
+  parts: [string, number][];
+  violation: number | null;
+  describe: string | null;
+}
+
+// Hand-edited; server/tests/test_title_length_fixture.py replays it on the
+// server. Read with JSON.parse, not imported: vite's native JSON loader
+// rejects the lone surrogate escapes the fixture holds on purpose.
+const fixture = JSON.parse(readFileSync(
+  join(__dirname, "../../../shared/fixtures/title_length.json"), "utf-8",
+)) as {
+  max_page_title_chars: number;
+  titles: TitleLengthCase[];
+  texts: TitleLengthCase[];
+};
 
 /** A case's text, rebuilt from its `[piece, times]` parts. */
 function textOf(parts: readonly (readonly (string | number)[])[]): string {

@@ -1,11 +1,11 @@
 ---
 # pkm-7p38
 title: mermaid 11.16 to 11.17.2, re-checking the mermaidSafety mirrors; 12 deferred for its size
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-18T10:55:36Z
-updated_at: 2026-11-18T11:06:21Z
+updated_at: 2026-11-18T11:09:27Z
 parent: pkm-tcca
 ---
 
@@ -42,3 +42,5 @@ so the image sites are the two refused ones above. The secure-default unit test
 passes; external-media.spec's four diagram probes fetch nothing.
 
 Verification: pnpm verify green (7168 unit, 130 Playwright); budgets OK.
+
+perf/check.sh frontend: no changes against the baseline.

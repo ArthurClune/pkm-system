@@ -5,6 +5,10 @@ allowBuilds:
 # katex@0.19.1 dependency.
 overrides:
   katex: ^0.19.1
+  # workbox-build 7.4.1 (vite-plugin-pwa's) asks for glob ^11, inside the
+  # range of a glob advisory; its one call, globSync(pattern, { cwd,
+  # follow, ignore }), behaves the same on glob 14.
+  workbox-build>glob: ^14.0.6
 # pdfjs-dist is react-pdf's pinned dependency (deliberately NOT a direct
 # dependency, so react-pdf's pin stays the single source of version truth).
 # PdfViewer.tsx references its worker by bare specifier

@@ -3,7 +3,7 @@
 // output (file sizes, chunk module ownership) and precache manifest, it
 // decides pass/fail against fixed raw-byte/entry budgets and produces
 // diagnostics. It reads no files and calls no build APIs -- viteBudgetPlugin.ts
-// (the shell) gathers Rollup/Workbox data and hands it here. Budget baselines
+// (the shell) gathers bundler/Workbox data and hands it here. Budget baselines
 // live in budgets.json; a single byte or entry over any limit fails.
 import budgetsJson from "./budgets.json";
 
@@ -40,7 +40,7 @@ export interface OutputFile {
   bytes: number;
 }
 
-/** A JavaScript output chunk plus the Rollup module ids it rendered. */
+/** A JavaScript output chunk plus the bundler module ids it rendered. */
 export interface OutputChunkInfo extends OutputFile {
   isEntry: boolean;
   moduleIds: readonly string[];
@@ -87,7 +87,7 @@ function topContributors(
  * is owned by that graph. This is deliberate: a chunk that mixes one owned
  * module with unrelated application code is not "owned", so a raw owned-bytes
  * cap can never be used to smuggle arbitrary bytes past the other budgets.
- * Ownership is decided from Rollup module ids, never output file names
+ * Ownership is decided from bundler module ids, never output file names
  * (which a broad substring could over-match).
  */
 export function chunkIsWhollyOwned(

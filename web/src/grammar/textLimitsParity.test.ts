@@ -1,13 +1,29 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { linkNestingDepth } from "./scan";
 import {
   MAX_BLOCK_TEXT_CHARS, MAX_LINK_NESTING, codePointLength, describeTextLimit,
-  textLimitViolation,
+  textLimitViolation, type TextLimitViolation,
 } from "./textLimits";
 
-// Imported, not read with node:fs, as depthCap.test.ts does. The server
-// writes it (pkm.text_limits_parity_dump) from its own measure and judge.
-import fixture from "../../../shared/fixtures/text_limits_parity.json";
+// The server writes it (pkm.text_limits_parity_dump) from its own measure
+// and judge. Read with JSON.parse, not imported: vite's native JSON loader
+// rejects the lone surrogate escapes the fixture holds on purpose.
+const fixture = JSON.parse(readFileSync(
+  join(__dirname, "../../../shared/fixtures/text_limits_parity.json"), "utf-8",
+)) as {
+  max_block_text_chars: number;
+  max_link_nesting: number;
+  cases: {
+    name: string;
+    parts: [string, number][];
+    code_points: number;
+    nesting_depth: number;
+    violation: (TextLimitViolation & { describe: string }) | null;
+  }[];
+  generated: { text: string; nesting_depth: number }[];
+};
 
 /** A case's text, rebuilt from its `[piece, times]` parts: the fixture
  * stores a million-character text as one short pair. */

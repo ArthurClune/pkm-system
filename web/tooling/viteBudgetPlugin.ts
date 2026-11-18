@@ -1,18 +1,18 @@
 // pattern: Imperative Shell
-// Build-time shell that measures the REAL Rollup output and the Workbox
-// precache manifest, then hands plain size/ownership data to buildBudgets.ts
-// (the pure policy) to decide pass/fail. It does no size arithmetic and no
-// budget comparison itself -- everything that decides "over budget" lives in
-// the functional core. Being over budget is a thrown build error, so a
-// material asset/precache regression fails `vite build` and therefore
-// `pnpm verify`.
+// Build-time shell that measures the REAL bundler (Rolldown) output and the
+// Workbox precache manifest, then hands plain size/ownership data to
+// buildBudgets.ts (the pure policy) to decide pass/fail. It does no size
+// arithmetic and no budget comparison itself -- everything that decides
+// "over budget" lives in the functional core. Being over budget is a thrown
+// build error, so a material asset/precache regression fails `vite build`
+// and therefore `pnpm verify`.
 //
 // Two independent guards, matching the two size surfaces the plan cares about:
-//   * generateBundle (Rollup): the app's own emitted chunks/assets -- eager
-//     entry weight, single largest file, total output, and the bytes of
-//     chunks WHOLLY owned by each specially-capped module graph (Mermaid,
-//     the lazy PDF viewer) via module-graph reachability, never
-//     output-file-name substrings.
+//   * generateBundle (Rolldown, through the Rollup plugin API): the app's
+//     own emitted chunks/assets -- eager entry weight, single largest file,
+//     total output, and the bytes of chunks WHOLLY owned by each
+//     specially-capped module graph (Mermaid, the lazy PDF viewer) via
+//     module-graph reachability, never output-file-name substrings.
 //   * manifestTransforms (Workbox): the exact final precache URL set -- the
 //     cold-install offline-shell weight and entry count.
 import type { Plugin } from "vite";
@@ -25,7 +25,7 @@ import {
   formatReport,
 } from "./buildBudgets";
 
-/** The slice of a Rollup emitted output the budget policy needs. */
+/** The slice of a bundler emitted output the budget policy needs. */
 interface EmittedChunk {
   type: "chunk";
   fileName: string;
@@ -40,7 +40,7 @@ interface EmittedAsset {
 }
 type Emitted = EmittedChunk | EmittedAsset;
 
-/** The slice of Rollup's PluginContext used to walk the module graph. */
+/** The slice of the bundler's PluginContext used to walk the module graph. */
 interface ModuleGraph {
   getModuleIds(): IterableIterator<string>;
   getModuleInfo(id: string): {
@@ -146,7 +146,7 @@ export const isHljsSeed = (id: string): boolean =>
   /[\\/]node_modules[\\/]highlight\.js[\\/]/.test(id);
 
 /**
- * Vite/Rollup plugin: enforce the production bundle budgets in generateBundle,
+ * Vite plugin: enforce the production bundle budgets in generateBundle,
  * once, against the final emitted output.
  */
 export function budgetPlugin(): Plugin {

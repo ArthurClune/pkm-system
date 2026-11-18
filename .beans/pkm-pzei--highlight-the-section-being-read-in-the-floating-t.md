@@ -1,10 +1,11 @@
 ---
 # pkm-pzei
 title: Highlight the section being read in the floating toc
-status: draft
+status: scrapped
 type: feature
+priority: normal
 created_at: 2026-11-18T19:02:42Z
-updated_at: 2026-11-18T19:02:42Z
+updated_at: 2026-11-18T19:31:02Z
 ---
 
 Follow-up to the floating {{toc}} beside the main page. The floating list could mark the section the reader is in as the page scrolls (scroll-spy), as anil.recoil.org's notes pages do. Left out of the first version by choice.

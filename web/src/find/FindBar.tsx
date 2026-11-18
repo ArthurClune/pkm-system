@@ -2,7 +2,7 @@
 // Cmd-F / Cmd-G for the installed app, which has no browser find. Matches
 // are painted with the CSS Custom Highlight API, so the DOM React owns is
 // never wrapped or reselected.
-import { type KeyboardEvent as ReactKeyboardEvent,
+import { type JSX, type KeyboardEvent as ReactKeyboardEvent,
          type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef,
          useState } from "react";
 import type { BlockUid } from "../api/brands";

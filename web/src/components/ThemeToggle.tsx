@@ -1,4 +1,5 @@
 // pattern: Imperative Shell
+import type { JSX } from "react";
 import { useTheme } from "../useTheme";
 import { AutoThemeIcon, MoonIcon, SunIcon } from "./icons";
 

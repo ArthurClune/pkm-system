@@ -131,6 +131,12 @@ A `mounted` ref is set `true` in its effect's body, not only by
 `useRef(true)`. StrictMode's dev replay runs the cleanup and then the body
 again, so a ref set once stays `false`.
 
+A test of that replay puts `<StrictMode>` at the root: it renders it as the
+outermost element, or passes `reactStrictMode: true` to `render` or
+`renderHook`. React 19 replays none of the first mount's effects under a
+StrictMode that a `wrapper` component renders, so such a test passes without
+a replay.
+
 ## API layer
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and
@@ -201,6 +207,16 @@ none for a tab's first entry (its location key is `"default"`), so the hook
 mints one there. A view that scrolls to a target of its own on arrival checks
 `useRestoresHistoryScroll()` first, as PageView does for a `#uid`. Otherwise
 its jump overrides the restored offset.
+
+The hook also records the outgoing offset at `popstate`, because a scroll
+made in the same frame as a back has not yet fired its event. That listener
+must run before react-router's: `BrowserRouter` updates the location in a
+transition, and React 19 commits it as soon as the router's listener
+returns. Chromium runs a window's listeners in the order they were added, so
+the hook adds its own in a layout effect, within the router's first commit.
+WebKit runs capture listeners first, so the listener keeps `capture: true`.
+Only a browser shows the order (`e2e/history-scroll.spec.ts`); jsdom does
+not.
 
 ### Navigation chrome
 

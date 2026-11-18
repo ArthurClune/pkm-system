@@ -8,6 +8,11 @@
 // Text/annotation layers are disabled -- this is deliberately a scroll-only
 // viewer.
 //
+// Every <Document> passes suspense={false}. react-pdf 11 otherwise suspends
+// while loading, and the app has no Suspense boundary, so `loading` never
+// renders; a failed load reaches onLoadError and is then rethrown to the
+// root ErrorBoundary, which replaces the whole app.
+//
 // This module is loaded lazily by PdfEmbed (dynamic import), so react-pdf/
 // pdfjs-dist stay out of the eager entry chunk. The worker resolves to a
 // same-origin emitted build asset (precached by the service worker), so
@@ -256,6 +261,7 @@ export function PdfViewer({ href, label, onClose, triggerRef }: {
         ) : (
           <Document
             file={href}
+            suspense={false}
             onLoadSuccess={onLoadSuccess}
             onLoadError={onLoadError}
             loading={<span className="pdf-loading-note">Loading PDF…</span>}
@@ -289,6 +295,7 @@ export function PdfViewer({ href, label, onClose, triggerRef }: {
     <span className="pdf-embed" onClick={(e) => e.stopPropagation()}>
       <Document
         file={href}
+        suspense={false}
         onLoadSuccess={onLoadSuccess}
         onLoadError={onLoadError}
         loading={<span className="pdf-loading-note">Loading PDF…</span>}

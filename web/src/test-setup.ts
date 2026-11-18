@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterAll, afterEach, beforeEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { act, cleanup, configure, getConfig } from "@testing-library/react";
 import { FakeLocalStorage, FakeWebSocket, stubMatchMedia } from "./test-helpers";
 
 // Console guard: any console.warn or console.error fails the test that is
@@ -37,6 +37,23 @@ afterAll(async () => {
 });
 
 afterEach(cleanup);
+
+// findBy*/waitFor poll with React's act environment switched off, so React 19
+// commits on its own scheduler, and a commit whose effects set state (a lease
+// claim, a reveal, a seed) can still be in flight when the query resolves.
+// Without this flush, an assertion right after a findBy sees that half-done
+// state, and a "nothing happened" assertion passes without testing anything.
+// Two findBy/waitFor in flight at once (a Promise.all, an un-awaited findBy)
+// now overlap act() calls, and React's console.error fails the test.
+// vitest's vi.waitFor does not pass through here, so it gets no flush.
+const rtlAsyncWrapper = getConfig().asyncWrapper;
+configure({
+  asyncWrapper: async (cb) => {
+    const result: unknown = await rtlAsyncWrapper(cb);
+    await act(async () => {});
+    return result;
+  },
+});
 
 vi.stubGlobal("WebSocket", FakeWebSocket);
 afterEach(() => { FakeWebSocket.instances = []; });

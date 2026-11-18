@@ -5,13 +5,13 @@ status: todo
 type: epic
 priority: low
 created_at: 2026-11-17T20:07:08Z
-updated_at: 2026-11-17T21:54:54Z
+updated_at: 2026-11-18T12:40:36Z
 ---
 
 Majors left out of the 2026-11-17 dependency refresh (pkm-hujh, pkm-wp0f), each its own branch. No advisory in the shipped bundle depends on any of them (pnpm audit --prod and pip-audit were clean). mcp 2.x is not here: it went in with the server refresh (pkm-cxq5, reopened).
 
 - [ ] React 18 to 19, with @types/react and @types/react-dom 19, @testing-library/jest-dom 7, react-pdf 11 (its pdfjs-dist pin and the publicHoistPattern in pnpm-workspace.yaml) and react-router 7 to 8. Perf baselines (renders) will move.
-- [ ] vite 6 to 8, with @vitejs/plugin-react 6 and vite-plugin-pwa 2. vite-plugin-pwa 2 is what clears the glob and minimatch advisories that reach the build through workbox-build. Bundle and precache budgets need re-checking.
+- [x] vite 6 to 8, with @vitejs/plugin-react 6 and vite-plugin-pwa 2 (pkm-gxc3). A workbox-build>glob override, not vite-plugin-pwa 2, clears the glob and minimatch advisories. Rolldown's runtime chunk adds one cold-load request (H/cold 13 -> 14, accepted).
 - [ ] TypeScript 5.9 to 7, checking typescript-eslint and the eslint brand rules support it.
 - [ ] mermaid 11 to 12 (11.17.2 taken and 12 audited in pkm-7p38; 12 deferred: it bundles the 1.5 MB ELK layout engine, over the mermaid and precache budgets). It is pinned ~11.17.2 so that any bump forces the mermaidSafety mirror re-check against the new mermaid and dompurify.
 - [x] katex 0.18 to 0.19 (pkm-adqc): re-check that it still refuses links and images. The katex override in pnpm-workspace.yaml must keep one katex install.

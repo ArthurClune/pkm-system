@@ -1,8 +1,11 @@
 // pattern: Imperative Shell
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { BlockUid, CanonicalTitle } from "../api/brands";
 import type { BlockNode } from "../api/payloads";
 import { EditableBlockTree } from "../components/EditableBlockTree";
+import { TableOfContents } from "../components/TableOfContents";
+import { firstTocUid, tocEntries } from "../components/tocEntries";
+import { FloatingTocContext, TocFloatRoomContext } from "../contexts";
 import { useDnd } from "../dnd/DndContext";
 import { useDropZone } from "../dnd/useDropZone";
 import type { DropTarget } from "../outline/dnd";
@@ -27,7 +30,7 @@ import { templateFor } from "../templates/pageTemplates";
  * flushed tree and grants exactly one editor lease after commit. */
 export function EditablePage({ title, initial, stamps = false, refCounts, reveal,
                               revealNavigation, onRevealed, seedTemplate = false,
-                              onSeedTemplateHandled }: {
+                              onSeedTemplateHandled, floatToc = false }: {
   title: CanonicalTitle;
   initial: BlockNode[];
   /** Show the last-changed margin column. Only the main-pane
@@ -52,6 +55,10 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
    * sidebar) seeds again. */
   seedTemplate?: boolean;
   onSeedTemplateHandled?: () => void;
+  /** Float the first {{toc}} beside the outline while App reports room
+   * for it (TocFloatRoomContext). Only the main-pane PageView passes this;
+   * the journal scroll and sidebar panels keep the card in place. */
+  floatToc?: boolean;
 }) {
   const ownerRef = useRef(Symbol(`editor:${title}`));
   // useOutline acquires and claims in one layout effect. That keeps render
@@ -153,6 +160,21 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
     () => ({ ...outline.handlers, onDragStartBlock, onDragEndBlock }),
     [outline.handlers, onDragStartBlock, onDragEndBlock]);
 
+  const tocRoom = useContext(TocFloatRoomContext);
+  const floatingToc = floatToc && tocRoom ? firstTocUid(outline.blocks) : null;
+  const floatingEntries = useMemo(
+    () => floatingToc === null ? null : tocEntries(outline.blocks, floatingToc),
+    [outline.blocks, floatingToc]);
+
+  const tree = (
+    <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
+                       selection={outline.selection} handlers={handlers}
+                       readOnly={outline.readOnly || !ownsEditor}
+                       fallback={!ownsEditor} stamps={stamps}
+                       refCounts={refCounts}
+                       onPickerNotice={setPickerNotice} />
+  );
+
   return (
     <div ref={containerRef}
          className={ownsEditor ? "outline-drop-zone" : undefined}
@@ -178,12 +200,16 @@ export function EditablePage({ title, initial, stamps = false, refCounts, reveal
           </button>
         </div>
       ) : (
-        <EditableBlockTree blocks={outline.blocks} focus={outline.focus}
-                           selection={outline.selection} handlers={handlers}
-                           readOnly={outline.readOnly || !ownsEditor}
-                           fallback={!ownsEditor} stamps={stamps}
-                           refCounts={refCounts}
-                           onPickerNotice={setPickerNotice} />
+        <FloatingTocContext.Provider value={floatingToc}>
+          {floatingEntries === null ? tree : (
+            <div className="outline-with-toc">
+              {tree}
+              <aside className="toc-float">
+                <TableOfContents entries={floatingEntries} />
+              </aside>
+            </div>
+          )}
+        </FloatingTocContext.Provider>
       )}
       {ownsEditor && indicator && (
         <div className="drop-indicator"

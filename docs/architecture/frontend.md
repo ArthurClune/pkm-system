@@ -131,6 +131,11 @@ A `mounted` ref is set `true` in its effect's body, not only by
 `useRef(true)`. StrictMode's dev replay runs the cleanup and then the body
 again, so a ref set once stays `false`.
 
+A test of that replay puts `<StrictMode>` at the root: it renders it as the
+outermost element, or passes `reactStrictMode: true` to `render` or
+`renderHook`. React 19 replays no mount effects under a StrictMode that a
+`wrapper` component renders, so such a test passes without a replay.
+
 ## API layer
 
 `apiFetch<T>` (`api/client.ts`) handles JSON, the 401 → `/login` redirect and

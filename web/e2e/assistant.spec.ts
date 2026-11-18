@@ -164,11 +164,13 @@ test("in a very short window the hint points up to the end it passed", async ({ 
     .toBeVisible();
   const allow = panel.getByRole("button", { name: "Allow" });
   await expect(allow).toBeDisabled();
-  // scrolling up brings the end marker through view, which arms Allow
+  // scrolling up brings the end marker through view, which arms Allow. It
+  // takes several 8px steps; poll's default backoff fits only about seven
+  // into its timeout, so the steps run at a fixed short interval.
   await expect.poll(async () => {
     await messages.evaluate((el) => { el.scrollTop -= 8; });
     return allow.isEnabled();
-  }).toBe(true);
+  }, { intervals: [50] }).toBe(true);
 });
 
 test("Stop button cancels a hung turn and the conversation stays usable", async ({ page }) => {

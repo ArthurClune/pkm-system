@@ -583,3 +583,18 @@ No product change.
 - Fixed flaky tests of saved-view options and undo.
 - Fixed bugs in query tables during resyncs and failed writes, table headers holding links, row hover over tables and query cards, and the Link button in unlinked references, closing epic `pkm-l79g`.
 - Agent rules on gates and exemptions, property-check failures, and the public repo moved from Claude's memory into AGENTS.md; notes on the assistant's model routing, the test fixture date, and font inlining moved into the architecture docs.
+
+## 2026-11-17 — Query Refresh, templates on create, and dependency upgrades
+
+- Plain-table cells show code blocks, sources and links in place, and a query in a cell shows as written.
+- Query blocks gain a Refresh button that re-runs the query; rows a cell edit moved out of the query stay until then.
+- Paper/ and Book/ pages created from search, or opened empty from a link, Ctrl-O or the sidebar, start with their template.
+- Server dependencies upgraded, including the Claude Agent SDK and MCP 2.3; KaTeX, jsdom, Vitest, ESLint and Playwright upgraded on the web.
+- Fixed flaky end-to-end tests that open the assistant after a reload.
+
+## 2026-11-18 — A floating table of contents, React 19 and Vite 8
+
+- On a wide main page with the sidebar closed, a `{{toc}}` floats in a column beside the page.
+- React upgraded to 19.3 with React Router 8, and Vite to 8; viewing PDFs needs Safari or iPadOS 26.
+- Mermaid, websockets and the server's lint rules upgraded.
+- Fixed a flaky end-to-end test of the assistant in a short window.

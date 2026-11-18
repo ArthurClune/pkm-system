@@ -109,8 +109,8 @@ vi.mock("react-pdf", async () => {
       else onLoadSuccess?.(fakePdf);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file]);
-    // react-pdf 11 suspends by default and throws a failed load to the
-    // nearest error boundary, never reaching onLoadError or `loading`.
+    // react-pdf 11 suspends by default, so `loading` never renders, and it
+    // rethrows a failed load to the root error boundary after onLoadError.
     if (suspense !== false) throw new Error("Document needs suspense={false}");
     if (!settled) return <>{loading}</>;
     return <div data-testid="pdf-document">{children}</div>;

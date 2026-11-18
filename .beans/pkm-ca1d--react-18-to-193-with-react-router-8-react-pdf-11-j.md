@@ -1,11 +1,11 @@
 ---
 # pkm-ca1d
 title: React 18 to 19.3 with react-router 8, react-pdf 11, jest-dom 7
-status: in-progress
+status: completed
 type: task
 priority: normal
 created_at: 2026-11-18T13:08:10Z
-updated_at: 2026-11-18T13:24:17Z
+updated_at: 2026-11-18T14:08:05Z
 parent: pkm-tcca
 ---
 
@@ -16,9 +16,9 @@ Part of pkm-tcca. React 18.3.1 has had no release since April 2024; 19.0-19.3 ar
 - [x] Behaviour changes checked: render errors no longer re-thrown (the root ErrorBoundary only renders a message; nothing relied on a rethrow), Suspense fallback commits before siblings (the app has no Suspense; react-pdf 11's is turned off), StrictMode memo reuse (dev only), Trusted Types no longer stringified (none used)
 - [x] react-router 8 migration notes applied (library mode untouched by 8.0; its exports map now picks the production build, so the vite.config alias is gone)
 - [x] Bundle and precache budgets re-checked
-- [ ] pnpm verify green
-- [ ] proptest/check.sh web
-- [ ] perf/check.sh frontend (render counts expected to move; table to Arthur)
+- [x] pnpm verify green
+- [x] proptest/check.sh web (248 passed)
+- [x] perf/check.sh frontend: no changes against the baseline (no count or timing moved; no rebaseline)
 
 ## Notes
 
@@ -52,3 +52,28 @@ Part of pkm-tcca. React 18.3.1 has had no release since April 2024; 19.0-19.3 ar
   listeners are now added in a useLayoutEffect, which runs before
   BrowserRouter's (a parent) subscribes. jsdom cannot show the order, so the
   e2e spec is the regression test; the rule is in the hook's header.
+- Browser floor: pdf.js 6's modern build calls
+  `Map.prototype.getOrInsertComputed` and `Math.sumPrecise` with no polyfill
+  (pdf.js 5.4 had neither). Chromium 159 and WebKit 27.2 have both, so PDF
+  viewing needs iPadOS/Safari 26 or later; an older engine fails the load or
+  leaves pages blank. Only pdf.js's legacy build polyfills them.
+- Opus whole-branch review: merge, no code defect. Its doc and comment
+  findings are applied: the popstate order rule in frontend.md § Scroll on
+  back and forward (WebKit runs capture listeners first, so `capture: true`
+  stays; Chromium orders by registration, hence the layout effect), the
+  react-pdf 11 failure mode (a failed load reaches onLoadError, then is
+  rethrown to the root ErrorBoundary), and the test-setup flush's edges.
+
+## Summary of Changes
+
+React 18.3.1 to 19.3.1 with @types/react(-dom) 19, react-router 8.5.1,
+react-pdf 11.1.0 (pdf.js 6.5.438) and jest-dom 7.0.1. PdfViewer passes
+suspense={false}; the vite.config alias that forced react-router's
+production build is gone (its exports map does it); three type fixes.
+Back/forward scroll restore adds its popstate listener in a layout effect
+so it runs before react-router's (the e2e history-scroll regression). Tests:
+StrictMode replay tests put StrictMode at the root, and RTL's async wrapper
+ends with an act() flush. Budgets raised with Arthur's approval
+(initialEntryBytes, pdfjsOwnedBytes, totalOutputBytes, precacheBytes).
+Gates on the branch: pnpm verify green (7168 unit, 130 e2e),
+proptest/check.sh web 248/248, perf/check.sh frontend no changes.

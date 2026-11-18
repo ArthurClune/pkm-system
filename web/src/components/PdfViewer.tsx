@@ -8,9 +8,10 @@
 // Text/annotation layers are disabled -- this is deliberately a scroll-only
 // viewer.
 //
-// Every <Document> passes suspense={false}: react-pdf 11 otherwise suspends
-// and throws a failed load to the nearest error boundary, so onLoadError
-// would never show the fallback link and `loading` would never render.
+// Every <Document> passes suspense={false}. react-pdf 11 otherwise suspends
+// while loading, and the app has no Suspense boundary, so `loading` never
+// renders; a failed load reaches onLoadError and is then rethrown to the
+// root ErrorBoundary, which replaces the whole app.
 //
 // This module is loaded lazily by PdfEmbed (dynamic import), so react-pdf/
 // pdfjs-dist stay out of the eager entry chunk. The worker resolves to a

@@ -43,6 +43,9 @@ afterEach(cleanup);
 // claim, a reveal, a seed) can still be in flight when the query resolves.
 // Without this flush, an assertion right after a findBy sees that half-done
 // state, and a "nothing happened" assertion passes without testing anything.
+// Two findBy/waitFor in flight at once (a Promise.all, an un-awaited findBy)
+// now overlap act() calls, and React's console.error fails the test.
+// vitest's vi.waitFor does not pass through here, so it gets no flush.
 const rtlAsyncWrapper = getConfig().asyncWrapper;
 configure({
   asyncWrapper: async (cb) => {

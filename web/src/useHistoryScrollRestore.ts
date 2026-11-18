@@ -22,7 +22,10 @@
 // popstate listeners in the order they were added, whatever their capture
 // flag, so ours is added in a layout effect: this hook sits under the
 // router, and a child's layout effects run before the parent's, where
-// BrowserRouter subscribes.
+// BrowserRouter subscribes. That holds only while the hook mounts in the
+// router's first commit and its effect never re-runs (a Fast Refresh of App
+// re-runs it, so back/forward misbehaves until a reload). WebKit runs capture
+// listeners first whatever the order, which is why the capture flag stays.
 //
 // The key lives in history.state. react-router keys every entry it pushes,
 // but gives the tab's first entry the location key "default" without

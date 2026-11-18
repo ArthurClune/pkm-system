@@ -24,8 +24,9 @@
 // router, and a child's layout effects run before the parent's, where
 // BrowserRouter subscribes. That holds only while the hook mounts in the
 // router's first commit and its effect never re-runs (a Fast Refresh of App
-// re-runs it, so back/forward misbehaves until a reload). WebKit runs capture
-// listeners first whatever the order, which is why the capture flag stays.
+// re-runs it, so back/forward misbehaves until a reload). In WebKit, which
+// runs capture listeners first, the capture flag also keeps ours first if
+// the hook ever mounts after the router; Chromium ignores it for ordering.
 //
 // The key lives in history.state. react-router keys every entry it pushes,
 // but gives the tab's first entry the location key "default" without

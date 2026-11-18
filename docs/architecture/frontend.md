@@ -214,7 +214,9 @@ must run before react-router's: `BrowserRouter` updates the location in a
 transition, and React 19 commits it as soon as the router's listener
 returns. Chromium runs a window's listeners in the order they were added, so
 the hook adds its own in a layout effect, within the router's first commit.
-WebKit runs capture listeners first, so the listener keeps `capture: true`.
+That order holds in WebKit too. There the listener's `capture: true` is a
+second guarantee, because WebKit runs capture listeners first: it keeps the
+listener first even if the hook ever mounts after the router.
 Only a browser shows the order (`e2e/history-scroll.spec.ts`); jsdom does
 not.
 

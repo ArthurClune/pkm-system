@@ -174,7 +174,9 @@ Rules a change to the gate must keep:
 - `cache_key` (`fixture.py`, `build.py`, the DDL, the product source) decides
   when the cached fixture is rebuilt. `fixture_hash` (`fixture.py` only)
   decides comparability, so a schema or query change is measured rather than
-  excused. A result whose `env` (`python`, `sqlite`, `chromium`) differs is
+  excused. Any edit to `fixture.py`, a lint fix included, leaves both
+  baselines incomparable. The branch that makes it rebaselines both sides,
+  after showing `generate()` returns what it did before. A result whose `env` (`python`, `sqlite`, `chromium`) differs is
   refused. The sqlite-wasm build is pinned by the measured tree's lockfile,
   not `env`, so the merge-base run attributes a bump to the branch.
 - The cache dir, the merge-base worktrees and port 8977 are shared by every

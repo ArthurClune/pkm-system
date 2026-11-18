@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { block, uidOf } from "../test-helpers";
-import { isTocMacro, tocEntries } from "./tocEntries";
+import { firstTocUid, isTocMacro, tocEntries } from "./tocEntries";
 
 describe("isTocMacro", () => {
   test("accepts both macro spellings, any case, with surrounding space", () => {
@@ -105,5 +105,28 @@ describe("tocEntries", () => {
       }),
     ], uidOf("tuid-self"));
     expect(entries[0].children.map((e) => e.uid)).toEqual(["tuid-two"]);
+  });
+});
+
+describe("firstTocUid", () => {
+  test("is the first toc block in outline order, either spelling", () => {
+    expect(firstTocUid([
+      block("tuid-a", "x"), block("tuid-b", "{{toc}}"),
+      block("tuid-c", "{{[[toc]]}}"),
+    ])).toBe(uidOf("tuid-b"));
+  });
+
+  test("walks collapsed subtrees, depth first, before later siblings", () => {
+    expect(firstTocUid([
+      block("tuid-p", "parent", {
+        collapsed: true, children: [block("tuid-n", "{{toc}}")] }),
+      block("tuid-t", "{{toc}}"),
+    ])).toBe(uidOf("tuid-n"));
+  });
+
+  test("is null when no block is only the macro", () => {
+    expect(firstTocUid([block("tuid-a", "x")])).toBeNull();
+    expect(firstTocUid([block("tuid-a", "see {{toc}}")])).toBeNull();
+    expect(firstTocUid([])).toBeNull();
   });
 });

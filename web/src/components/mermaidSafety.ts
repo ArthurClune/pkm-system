@@ -19,7 +19,7 @@
 // whose effect the first two cannot reach.
 
 // Mermaid 11's own default list, restated so the list set here does not
-// depend on whether initialize merges arrays or replaces them (11.16
+// depend on whether initialize merges arrays or replaces them (11.17
 // merges them); mermaidSafety.test.ts checks it still covers the installed
 // mermaid's default.
 const MERMAID_DEFAULT_SECURE = [

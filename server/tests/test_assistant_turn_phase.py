@@ -75,7 +75,7 @@ def test_stop_then_send_answers_the_new_message(tmp_path, monkeypatch, order,
         await conv.close()
         return conv, client, events
 
-    conv, client, events = asyncio.run(scenario())
+    _conv, client, events = asyncio.run(scenario())
     assert client.interrupts == 1
     assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
 
@@ -137,7 +137,7 @@ def test_stop_after_the_harness_finished_keeps_the_conversation(tmp_path):
         await conv.close()
         return conv, events
 
-    conv, events = asyncio.run(scenario())
+    _conv, events = asyncio.run(scenario())
     assert events == [TextDelta(text="re two"), TurnDone(usage={"tag": "two"})]
 
 

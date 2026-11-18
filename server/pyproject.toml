@@ -59,7 +59,16 @@ line-length = 120
 # The base set is ruff's pre-0.17 default (E4, E7, E9, F), named explicitly:
 # 0.17 widened the default by about forty rules, and adopting any of them is
 # a lint gate of its own, not a side effect of a version bump.
-select = ["E4", "E7", "E9", "F", "E501", "ANN"]
+#
+# B023, BLE001, PLW1510 and RUF059 are chosen because each finds real mistakes:
+# a closure that sees a later loop value, an `except Exception` that hides a
+# bug, a `subprocess.run` whose failure is never decided on, an unpacked value
+# that was meant to be asserted. A BLE001 `# noqa` is for a boundary that must
+# survive any exception, and carries that reason. I001 is left out because it
+# rewrites most files and conflicts with open branches; B008 because FastAPI's
+# `Depends(...)` default is its idiom. The rest of ruff 0.17's wider default
+# is not adopted.
+select = ["E4", "E7", "E9", "F", "E501", "ANN", "B023", "BLE001", "PLW1510", "RUF059"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN001", "ANN002", "ANN003", "ANN2"]

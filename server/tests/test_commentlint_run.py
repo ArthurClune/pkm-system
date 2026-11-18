@@ -93,7 +93,7 @@ def test_all_scans_the_tracked_tree(repo: Path, capsys):
 def test_the_hook_runs_the_lint_from_any_checkout(repo: Path):
     write(repo, "web/src/a.ts", "// (plan-3 contract note)\n")
     git(repo, "add", "web/src")
-    result = subprocess.run([str(HOOK)], cwd=repo, capture_output=True, text=True)
+    result = subprocess.run([str(HOOK)], cwd=repo, capture_output=True, text=True, check=False)
     assert result.returncode == 1
     assert "web/src/a.ts:1: orphan-pointer" in result.stderr
 

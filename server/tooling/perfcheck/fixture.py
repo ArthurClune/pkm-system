@@ -204,10 +204,10 @@ class _Gen:
             title = f"Perf Book {i:04d}"
             idx = 0
 
-            def line(text: str) -> str:
+            def line(text: str, page: str = title) -> str:
                 nonlocal idx
                 idx += 1
-                return self.add(title, now_ms, None, idx - 1, text)
+                return self.add(page, now_ms, None, idx - 1, text)
 
             tags = f"Tags:: [[{hub}]] #tag{rng.randint(0, 19)}"
             if i % 5 == 4:

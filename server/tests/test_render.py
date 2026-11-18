@@ -669,7 +669,7 @@ def test_bounded_page_that_fits_is_the_full_render():
 
 
 def test_bounded_page_over_budget_outlines_to_the_deepest_fitting_level():
-    page, top, mid = _three_levels()
+    page, _top, _mid = _three_levels()
     full = render_page(page, include_uids=True)
     depth3 = render_page_bounded(page, len(full) - 1)
     assert "Shown 3 levels deep" in depth3

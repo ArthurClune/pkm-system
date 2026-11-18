@@ -66,9 +66,9 @@ STEPS = (
 def run_step(step: Step) -> int:
     env = {**os.environ, **({step.env: "1"} if step.env else {})}
     if step.module is None:
-        return subprocess.run(step.command, cwd=REPO / "web", env=env).returncode
+        return subprocess.run(step.command, cwd=REPO / "web", env=env, check=False).returncode
     done = subprocess.run([sys.executable, "-m", step.module, *step.args],
-                          cwd=REPO / "server", env=env, capture_output=step.target is not None)
+                          cwd=REPO / "server", env=env, capture_output=step.target is not None, check=False)
     if done.returncode == 0 and step.target is not None:
         (REPO / step.target).write_bytes(done.stdout)
         print(step.target)

@@ -31,7 +31,7 @@ def launcher(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 def run(launcher: str, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [launcher, *args], capture_output=True, text=True, timeout=TIMEOUT
+        [launcher, *args], capture_output=True, text=True, timeout=TIMEOUT, check=False
     )
 
 

@@ -110,7 +110,7 @@ def test_get_page_markdown(run):
 
 
 def test_get_page_json(run):
-    code, out, _ = run("get", "Machine Learning", "--json")
+    _code, out, _ = run("get", "Machine Learning", "--json")
     assert json.loads(out)["page"]["title"] == "Machine Learning"
 
 
@@ -302,7 +302,7 @@ def test_changed_default_is_today(run, pkm_client):
 
 
 def test_changed_day_word_and_since_are_mutually_exclusive(run):
-    code, out, err = run("changed", "today", "--since", "2026-01-01")
+    code, _out, err = run("changed", "today", "--since", "2026-01-01")
     assert code == 1
     assert "mutually exclusive" in err
 
@@ -318,7 +318,7 @@ def test_changed_explicit_since_until(run, pkm_client):
 
 
 def test_changed_bad_since_reported_as_error(run):
-    code, out, err = run("changed", "--since", "not-a-date")
+    code, _out, err = run("changed", "--since", "not-a-date")
     assert code == 1
     assert "since" in err
 

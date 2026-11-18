@@ -174,7 +174,7 @@ async def _sse_frames(
         try:
             async for frame in frames:
                 yield frame
-        except Exception as exc:  # engine failure mid-stream: report in-band
+        except Exception as exc:  # noqa: BLE001 - any engine failure mid-stream is reported in-band
             yield encode_sse(ErrorEvent(message=str(exc)))
 
 

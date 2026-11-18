@@ -112,7 +112,7 @@ class Hub:
                 try:
                     await asyncio.wait_for(client.ws.send_json(message.wire()),
                                            timeout=SEND_TIMEOUT)
-                except Exception:
+                except Exception:  # noqa: BLE001 - any send failure drops the client
                     # Forget (registry-only) BEFORE closing, and never
                     # call self.disconnect() here: this coroutine IS the
                     # drain task, so self.disconnect() would cancel
@@ -149,7 +149,7 @@ async def _safe_close(ws: WebSocket) -> None:
     this at all; _drain's does, and would otherwise never return)."""
     try:
         await asyncio.wait_for(ws.close(), timeout=CLOSE_TIMEOUT)
-    except Exception:
+    except Exception:  # noqa: BLE001 - best-effort close, see docstring
         pass
 
 

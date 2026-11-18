@@ -175,7 +175,7 @@ def test_launcher_restores_default_signals(tmp_path, sig):
     launcher.write_text(launcher_script("/bin/sh", ["HOME"], sys.executable))
     launcher.chmod(0o700)
     ran = subprocess.run([launcher, "-c", f"kill -{sig} $$; echo survived"],
-                         env={"HOME": "/h"}, capture_output=True, text=True)
+                         env={"HOME": "/h"}, capture_output=True, text=True, check=False)
     assert ran.returncode == -getattr(signal, f"SIG{sig}")
     assert "survived" not in ran.stdout
 

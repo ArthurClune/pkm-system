@@ -94,7 +94,7 @@ def test_save_propagates_the_title_length_refusal(run, pkm_client):
 
 
 def test_save_stdin_outline_nests(run, pkm_client):
-    code, out, _ = run("save", "-p", "AI", "-",
+    code, _out, _ = run("save", "-p", "AI", "-",
                        stdin="- [[Henderson]]\n  detail line\n")
     assert code == 0
     texts = _page_texts(pkm_client, "AI")
@@ -208,7 +208,7 @@ def test_upload_post_ops_failure_deletes_the_orphaned_asset(
         raise ApiError(500, "boom")
 
     monkeypatch.setattr(pkm_client, "post_ops", _fail)
-    code, out, err = run("upload", str(png), "-p", "AI")
+    code, out, _err = run("upload", str(png), "-p", "AI")
     assert code == 1
     assert out == ""  # success output withheld until the link actually lands
     assert pkm_client.search_assets("pic.png").total == 0

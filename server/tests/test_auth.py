@@ -178,7 +178,7 @@ def test_a_burst_from_one_source_does_not_lock_out_another(
     _frozen_throttle(anon_client.app)
 
     async def both() -> list[httpx2.Response]:
-        burst, user = await asyncio.gather(
+        _burst, user = await asyncio.gather(
             _logins(anon_client.app, ATTACKER, ["guess"] * BURST),
             _logins(anon_client.app, USER, [TEST_PASSWORD]))
         return user
@@ -565,7 +565,7 @@ def _websocket_answer(anon: TestClient, path: str) -> int | str:
                 out.append("accepted")
         except WebSocketDisconnect as exc:
             out.append(exc.code)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - records the type of whatever refused the connect
             out.append(type(exc).__name__)
 
     thread = threading.Thread(target=connect, daemon=True)

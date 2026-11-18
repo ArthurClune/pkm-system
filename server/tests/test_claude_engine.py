@@ -632,7 +632,7 @@ def test_disconnect_cleanup_survives_a_wedged_interrupt(tmp_path, monkeypatch):
         await conv.close()
         return conv, client
 
-    conv, client = asyncio.run(scenario())
+    _conv, client = asyncio.run(scenario())
     assert client.interrupts == 1
 
 
@@ -656,7 +656,7 @@ def test_disconnect_cleanup_survives_an_interrupt_that_raises(tmp_path):
         await conv.close()
         return conv, client
 
-    conv, client = asyncio.run(scenario())
+    _conv, client = asyncio.run(scenario())
     assert client.interrupts == 1
 
 

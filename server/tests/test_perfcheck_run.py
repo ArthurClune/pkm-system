@@ -473,7 +473,7 @@ def test_assemble_rebaseline_docs_reuses_the_last_branch_sample_when_runs_outnum
 
 def test_assemble_rebaseline_docs_carries_only_committed_entries_of_the_plan():
     plan = run_core.RebaselinePlan((), ("q/kept",), ())
-    docs, carried = _assemble([], plan, {"q/kept": {"n": 4}, "q/other": {"n": 5}},
+    _docs, carried = _assemble([], plan, {"q/kept": {"n": 4}, "q/other": {"n": 5}},
                               [{"scenarios": {}}])
     assert carried == {"q/kept": {"n": 4}}
     assert _assemble([], plan, None, [{"scenarios": {}}])[1] == {}

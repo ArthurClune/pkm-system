@@ -226,16 +226,20 @@ def harness(tmp_path_factory):
 def test_every_imported_row_is_served(harness, tmp_path_factory):
     for migrate in (True, False):
         for heading in _HEADINGS:
-            @settings(max_examples=EXAMPLES_PER_CELL, deadline=None,
-                      database=None, suppress_health_check=[
-                          HealthCheck.function_scoped_fixture,
-                          HealthCheck.too_slow, HealthCheck.data_too_large])
-            @given(data=st.data(), legacy_heading_zero=st.booleans())
-            def cell(data, legacy_heading_zero):
-                _import_is_served(harness, tmp_path_factory, data, migrate,
-                                  heading, legacy_heading_zero)
+            _cell(harness, tmp_path_factory, migrate, heading)()
 
-            cell()
+
+def _cell(harness, tmp_path_factory, migrate: bool, heading: str):
+    @settings(max_examples=EXAMPLES_PER_CELL, deadline=None,
+              database=None, suppress_health_check=[
+                  HealthCheck.function_scoped_fixture,
+                  HealthCheck.too_slow, HealthCheck.data_too_large])
+    @given(data=st.data(), legacy_heading_zero=st.booleans())
+    def cell(data, legacy_heading_zero):
+        _import_is_served(harness, tmp_path_factory, data, migrate,
+                          heading, legacy_heading_zero)
+
+    return cell
 
 
 def _import_is_served(harness, tmp_path_factory, data, migrate: bool,

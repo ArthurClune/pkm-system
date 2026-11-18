@@ -161,7 +161,7 @@ def test_export_does_not_clobber_assets_that_collide_after_truncation(tmp_path):
 def test_render_failure_preserves_previous_export(graph, monkeypatch):
     # A crash while rendering a page must not touch the last good export:
     # the old export is only replaced once a full new one is ready.
-    db, live_assets, export, sha = graph
+    db, live_assets, export, _sha = graph
     export_graph(db, live_assets, export)
     before = _snapshot(export)
 
@@ -182,7 +182,7 @@ def test_asset_copy_failure_preserves_previous_export(graph, monkeypatch):
     # A crash while copying a *new* asset into the export must not touch
     # the last good export either -- not even a brand-new page that
     # rendered fine before the copy blew up.
-    db, live_assets, export, sha = graph
+    db, live_assets, export, _sha = graph
     export_graph(db, live_assets, export)
     before = _snapshot(export)
 
@@ -289,7 +289,7 @@ def test_recovers_from_an_abandoned_stale_dir(graph):
     # before the final "<name>.stale" cleanup ran, `target` already holds
     # the correct new content and an orphaned "<name>.stale" sits beside
     # it. The next run must clear that leftover on its own.
-    db, live_assets, export, sha = graph
+    db, live_assets, export, _sha = graph
     export_graph(db, live_assets, export)
     (export / "pages.stale").mkdir()
     (export / "pages.stale" / "leftover.md").write_text("garbage")
@@ -310,7 +310,7 @@ def test_recovers_from_a_crash_between_the_two_publish_renames(graph):
     # (old) content lives only under the stale name. The next run must
     # still recover: the stale content is superseded by a freshly
     # rendered `target`, and the stale dir is cleared.
-    db, live_assets, export, sha = graph
+    db, live_assets, export, _sha = graph
     export_graph(db, live_assets, export)
     (export / "pages").rename(export / "pages.stale")
     assert not (export / "pages").exists()

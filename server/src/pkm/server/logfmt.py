@@ -77,7 +77,7 @@ class EscapePkmMessages(logging.Filter):
             return record
         try:
             message = record.getMessage()
-        except Exception:
+        except Exception:  # noqa: BLE001 - a record's __str__ may raise anything; a log filter must not
             return record
         escaped = copy.copy(record)
         escaped.msg = escape_controls(message)

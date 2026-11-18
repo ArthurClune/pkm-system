@@ -31,7 +31,7 @@ def _run_server(repo: Path, seed: int | None, path: str | None = None,
     if seed is not None:
         cmd.append(f"--hypothesis-seed={seed}")
     result = subprocess.run(cmd, cwd=repo / "server",
-                            env={**os.environ, "HYPOTHESIS_PROFILE": "merge"})
+                            env={**os.environ, "HYPOTHESIS_PROFILE": "merge"}, check=False)
     return result.returncode
 
 

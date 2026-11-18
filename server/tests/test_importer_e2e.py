@@ -781,7 +781,7 @@ def test_index_files_registers_uid_prefix_keys(tmp_path):
     files = tmp_path / "files"
     files.mkdir()
     (files / "abCdEfGhIj-Screenshot 2025.png").write_bytes(b"X")
-    by_name, paths = _index_files(files)
+    by_name, _paths = _index_files(files)
     assert "abcdefghij-screenshot 2025.png" in by_name
     assert "abcdefghij" in by_name
     assert by_name["abcdefghij"].filename == "abCdEfGhIj-Screenshot 2025.png"
@@ -800,7 +800,7 @@ def test_index_files_bounds_overlong_and_multibyte_filenames(tmp_path):
     multibyte = "é" * 110 + ".png"  # 224 bytes: valid on disk, over our cap
     (files / overlong).write_bytes(b"X")
     (files / multibyte).write_bytes(b"Y")
-    by_name, paths = _index_files(files)
+    by_name, _paths = _index_files(files)
 
     overlong_asset = by_name[overlong.lower()]
     assert overlong_asset.filename.endswith(".png")

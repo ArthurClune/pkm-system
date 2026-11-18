@@ -60,6 +60,9 @@ floating contents is hidden, and it comes back when the sidebar closes.
   scrolls. A contents list taller than the window scrolls within its column
   (no truncation). When not floating, the outline takes the full width as
   now.
+- The floating list's entries are 13px, two below the 15px body text (the
+  in-place card's entries stay at body size); its "Table of Contents"
+  header keeps the card's 12px.
 - The marker is a small, muted line in place of the card (e.g. the "Table of
   Contents" header alone). Clicking the row still opens it for editing, as
   any block does.

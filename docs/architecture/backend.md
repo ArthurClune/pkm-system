@@ -274,6 +274,12 @@ raw SQL.
 and route docstrings carry the detail. Every endpoint needs the session
 cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 
+When `web_dist/build-id.json` holds a valid id, every response carries it as
+`X-Pkm-Build` (`build_stamp.py`), so a client running a cached bundle can
+tell it is stale ([frontend.md § Build notes](frontend.md#build-notes-viteconfigts)).
+The server reads the file once at startup. `update.sh` rebuilds before it
+restarts the service, so the header always names the files being served.
+
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/login` *(public)* | Password → session cookie ([Auth](request-boundary.md#auth)) |

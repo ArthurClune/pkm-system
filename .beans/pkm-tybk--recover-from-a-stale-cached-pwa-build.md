@@ -13,11 +13,11 @@ Cause: the PWA kept running a weeks-old precached bundle because its service wor
 
 Fix: the server advertises the build it serves (X-Pkm-Build header from web/dist/build-id.json); the app compares it with its own stamped id and shows a banner offering a clean reload (unregister the service worker, delete Cache Storage, keep the OPFS replica). The error screen's Reload does the same clean reload. Both fall back to a plain reload when the server is unreachable.
 
-- [ ] Design doc
-- [ ] Plan
-- [ ] Build id stamped into bundle and dist
-- [ ] Server header
-- [ ] Client comparison + banner
-- [ ] Clean reload (error screen + banner)
-- [ ] Docs
+- [x] Design doc
+- [x] Plan
+- [x] Build id stamped into bundle and dist
+- [x] Server header
+- [x] Client comparison + banner
+- [x] Clean reload (error screen + banner)
+- [x] Docs
 - [ ] Verification

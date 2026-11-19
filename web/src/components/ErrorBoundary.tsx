@@ -2,6 +2,7 @@
 // A React class component with its own lifecycle state
 // (getDerivedStateFromError), not a pure rendering decision.
 import { Component, type ReactNode } from "react";
+import { cleanReload } from "../cleanReload";
 
 interface State {
   failed: boolean;
@@ -9,8 +10,9 @@ interface State {
 }
 
 /** Root render-error net: editing state raises the
- * odds of a render throw; fail to a message + reload link, not a white
- * screen. */
+ * odds of a render throw; fail to a message + reload button, not a white
+ * screen. The reload is clean: a throw can come from a stale cached bundle
+ * meeting a newer server, which a plain reload would boot again. */
 export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
   state: State = { failed: false, message: "" };
 
@@ -24,7 +26,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
         <div className="error-screen">
           <h1>Something went wrong</h1>
           <p className="error">{this.state.message}</p>
-          <a href="/">Reload</a>
+          <button type="button" onClick={() => { void cleanReload(); }}>
+            Reload
+          </button>
         </div>
       );
     }

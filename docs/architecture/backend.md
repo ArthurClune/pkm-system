@@ -274,6 +274,13 @@ raw SQL.
 and route docstrings carry the detail. Every endpoint needs the session
 cookie unless marked public. FastAPI's `/docs` and `/redoc` are off.
 
+When `web_dist/build-id.json` holds a valid id, every response carries it as
+`X-Pkm-Build` (`build_stamp.py`), so a client running a cached bundle can
+tell it is stale ([frontend.md § Build notes](frontend.md#build-notes-viteconfigts)).
+The SPA route reads `web_dist` from disk per request, so the id is re-read
+whenever the file changes. A rebuild without a restart then serves a header
+that still matches its files, and the banner never sticks.
+
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/login` *(public)* | Password → session cookie ([Auth](request-boundary.md#auth)) |

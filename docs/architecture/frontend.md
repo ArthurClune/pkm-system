@@ -450,6 +450,18 @@ Traps that make a Playwright spec (`web/e2e/`) pass vacuously or hang:
 - The service worker (`vite-plugin-pwa`) precaches what `globPatterns` lists,
   so a cold offline start boots and lazy renderers load offline. It
   runtime-caches `/assets/` and never caches `/api`.
+- A home-screen app runs its precached bundle until a new service worker
+  installs, and an install can keep failing, so a bundle can outlive many
+  deploys. `buildStampPlugin` (`web/tooling/buildStampPlugin.ts`) stamps one
+  id per build into the bundle (`__PKM_BUILD__`, `dev` under `vite serve`)
+  and into `dist/build-id.json`, which the server echoes as `X-Pkm-Build`.
+  `apiFetch` hands each network response's header to `staleBuild.ts`, and
+  `StaleBuildNotice` then offers a reload.
+- That reload, and the error screen's, is `cleanReload()`. It unregisters
+  the service worker and deletes Cache Storage, since a plain reload boots
+  the same precached bundle. It probes `/healthz` first and falls back to a
+  plain reload, because with no worker and no network nothing boots. It
+  never touches OPFS or IndexedDB, where the replica keeps unsynced edits.
 - Vite inlines an asset under 4 KB (the `build.assetsInlineLimit` default)
   into its CSS as a data URI. `KaTeX_Size3-Regular.woff2` is one, so it ships
   inside the KaTeX stylesheet, not as a file: a count of the precached core

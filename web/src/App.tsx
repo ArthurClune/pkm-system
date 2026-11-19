@@ -11,6 +11,7 @@ import { MenuIcon } from "./components/icons";
 import { NavPageLink } from "./components/NavPageLink";
 import { NavRouteLink } from "./components/NavRouteLink";
 import { DroppedDraftNotice } from "./components/DroppedDraftNotice";
+import { StaleBuildNotice } from "./components/StaleBuildNotice";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { UndoRedoKeys } from "./components/UndoRedoKeys";
 import { SidebarNav } from "./components/SidebarNav";
@@ -210,6 +211,7 @@ export function App() {
             <div className="app-banner-stack" ref={bannerStackRef}>
               <OfflineIndicator />
               <DroppedDraftNotice />
+              <StaleBuildNotice />
             </div>
             <div className={"app"
               + (sidebarCollapsed ? " nav-collapsed" : "")

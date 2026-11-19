@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 import { devProxyOrigin } from "./tooling/devProxyOrigin";
+import { buildStampPlugin } from "./tooling/buildStampPlugin";
 import { budgetPlugin, precacheBudgetTransform } from "./tooling/viteBudgetPlugin";
 
 // The Help view's `docs/keyboard.md?raw` import reaches one directory above
@@ -18,6 +19,7 @@ const apiTarget = `http://127.0.0.1:${process.env.PKM_API_PORT ?? "8974"}`;
 export default defineConfig({
   plugins: [
     react(),
+    buildStampPlugin(),
     // Offline app shell (docs/architecture/frontend.md § Build notes):
     // precache the built SPA so a cold start works with no network;
     // runtime-cache viewed uploads from /assets/ with an LRU cap. /api is NEVER

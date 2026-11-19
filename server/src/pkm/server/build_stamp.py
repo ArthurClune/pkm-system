@@ -3,8 +3,10 @@
 response so a client running a cached bundle can tell it is stale
 (docs/architecture/frontend.md § Build notes).
 
-The id is read once at startup: deploy rebuilds `web/dist` before it
-restarts the service, so a running server's id always names its files."""
+The SPA route reads `web_dist` from disk per request, so a rebuild without
+a restart serves new files at once. The id follows the same files: it is
+re-read whenever `build-id.json` changes, or a stale header would put up a
+banner that the clean reload cannot clear."""
 from __future__ import annotations
 
 import json
@@ -23,10 +25,9 @@ BUILD_HEADER = "X-Pkm-Build"
 _VALID_ID = re.compile(r"[A-Za-z0-9-]{1,64}")
 
 
-def read_build_id(web_dist: Path) -> str | None:
-    """The id in `web_dist/build-id.json`, or None when it is missing or
-    not a valid id."""
-    path = web_dist / BUILD_ID_FILE
+def read_build_id(path: Path) -> str | None:
+    """The id in a `build-id.json`, or None when it is missing or not a
+    valid id."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -41,10 +42,30 @@ def read_build_id(web_dist: Path) -> str | None:
     return build
 
 
+class BuildStamp:
+    """`web_dist`'s current build id, re-read only when the file changes."""
+
+    def __init__(self, web_dist: Path) -> None:
+        self._path = web_dist / BUILD_ID_FILE
+        self._key: tuple[int, int] | None = None
+        self._build: str | None = None
+
+    def current(self) -> str | None:
+        try:
+            st = self._path.stat()
+        except OSError:
+            self._key, self._build = None, None
+            return None
+        key = (st.st_mtime_ns, st.st_size)
+        if key != self._key:
+            self._key, self._build = key, read_build_id(self._path)
+        return self._build
+
+
 class BuildHeaderMiddleware:
-    def __init__(self, app: ASGIApp, build: str) -> None:
+    def __init__(self, app: ASGIApp, stamp: BuildStamp) -> None:
         self.app = app
-        self.build = build
+        self.stamp = stamp
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -53,7 +74,9 @@ class BuildHeaderMiddleware:
 
         async def send_with_header(message: Message) -> None:
             if message["type"] == "http.response.start":
-                MutableHeaders(scope=message)[BUILD_HEADER] = self.build
+                build = self.stamp.current()
+                if build is not None:
+                    MutableHeaders(scope=message)[BUILD_HEADER] = build
             await send(message)
 
         await self.app(scope, receive, send_with_header)

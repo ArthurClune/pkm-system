@@ -5,11 +5,20 @@
 // /healthz answers, because with the service worker gone and no network
 // nothing would boot; unreachable, it falls back to a plain reload.
 
+/** How long the probe waits: a host that drops packets can hold a fetch
+ * for a minute, and Reload must not look dead meanwhile. */
+export const HEALTH_PROBE_TIMEOUT_MS = 4000;
+
 async function serverReachable(): Promise<boolean> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), HEALTH_PROBE_TIMEOUT_MS);
   try {
-    return (await fetch("/healthz", { cache: "no-store" })).ok;
+    return (await fetch("/healthz",
+                        { cache: "no-store", signal: abort.signal })).ok;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

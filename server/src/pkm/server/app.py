@@ -23,7 +23,7 @@ from pkm.describe.routes import router as describe_router
 from pkm.describe.service import DescribeService
 from pkm.server.auth import require_auth, router as auth_router
 from pkm.server.auth_gate import AuthGateMiddleware
-from pkm.server.build_stamp import BuildHeaderMiddleware, read_build_id
+from pkm.server.build_stamp import BuildHeaderMiddleware, BuildStamp
 from pkm.server.config import Config
 from pkm.server.db import init_db
 from pkm.server.goodlinks_gateway import GoodlinksGateway
@@ -163,9 +163,9 @@ def create_app(
     app.add_middleware(OriginGuardMiddleware, allowed=allowed_origins(
         config.serve_origins, config.bind_hosts, api_port))
     app.add_middleware(SecurityHeadersMiddleware)
-    build = read_build_id(config.web_dist) if config.web_dist else None
-    if build is not None:
-        app.add_middleware(BuildHeaderMiddleware, build=build)
+    if config.web_dist is not None:
+        app.add_middleware(BuildHeaderMiddleware,
+                           stamp=BuildStamp(config.web_dist))
     app.add_middleware(RequestLogMiddleware)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.include_router(auth_router)

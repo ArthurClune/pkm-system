@@ -1,10 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanReload } from "./cleanReload";
+import { HEALTH_PROBE_TIMEOUT_MS, cleanReload } from "./cleanReload";
 
 afterEach(() => vi.unstubAllGlobals());
 
 interface Stubs {
-  health?: () => Promise<Response>;
+  health?: (url: string, init?: RequestInit) => Promise<Response>;
   unregister?: () => Promise<boolean>;
   deleteCache?: (name: string) => Promise<boolean>;
   serviceWorker?: boolean;
@@ -38,7 +38,8 @@ it("with the server up, drops the service worker and caches, then loads /",
    async () => {
   const s = stub();
   await cleanReload();
-  expect(s.fetchMock).toHaveBeenCalledWith("/healthz", { cache: "no-store" });
+  expect(s.fetchMock).toHaveBeenCalledWith(
+    "/healthz", expect.objectContaining({ cache: "no-store" }));
   expect(s.unregisterMock).toHaveBeenCalledTimes(2);
   expect(s.deleteMock.mock.calls.map((c) => c[0]))
     .toEqual(["workbox-precache-v2", "pkm-assets"]);
@@ -79,4 +80,25 @@ it("without the service worker API, still clears caches and loads /",
   await cleanReload();
   expect(s.deleteMock).toHaveBeenCalledTimes(2);
   expect(s.location.assign).toHaveBeenCalledWith("/");
+});
+
+it("treats a health probe that never answers as unreachable", async () => {
+  vi.useFakeTimers();
+  try {
+    // settles only when the probe's own signal aborts it
+    const s = stub({
+      health: (_url, init) => new Promise<Response>((_ok, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(init.signal?.reason);
+        });
+      }),
+    });
+    const done = cleanReload();
+    await vi.advanceTimersByTimeAsync(HEALTH_PROBE_TIMEOUT_MS);
+    await done;
+    expect(s.location.reload).toHaveBeenCalledOnce();
+    expect(s.unregisterMock).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
 });

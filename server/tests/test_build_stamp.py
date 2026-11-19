@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -51,4 +53,29 @@ def test_no_header_without_a_valid_stamp(tmp_path, content):
 
 def test_no_header_without_web_dist(tmp_path):
     client = TestClient(create_app(_config(tmp_path)))
+    assert "x-pkm-build" not in client.get("/healthz").headers
+
+
+def _write_stamp(dist, build, mtime_ns):
+    path = dist / "build-id.json"
+    path.write_text('{"build": "%s"}' % build)
+    os.utime(path, ns=(mtime_ns, mtime_ns))
+
+
+def test_header_follows_a_rebuild_without_a_restart(tmp_path):
+    dist = _dist(tmp_path)
+    _write_stamp(dist, "first", 1_000_000_000_000_000_000)
+    client = TestClient(create_app(_config(tmp_path, web_dist=dist)))
+    assert client.get("/healthz").headers["x-pkm-build"] == "first"
+    _write_stamp(dist, "second", 2_000_000_000_000_000_000)
+    assert client.get("/healthz").headers["x-pkm-build"] == "second"
+
+
+def test_header_appears_and_goes_with_the_stamp_file(tmp_path):
+    dist = _dist(tmp_path)
+    client = TestClient(create_app(_config(tmp_path, web_dist=dist)))
+    assert "x-pkm-build" not in client.get("/healthz").headers
+    _write_stamp(dist, "late", 1_000_000_000_000_000_000)
+    assert client.get("/healthz").headers["x-pkm-build"] == "late"
+    (dist / "build-id.json").unlink()
     assert "x-pkm-build" not in client.get("/healthz").headers

@@ -51,14 +51,19 @@ it("renders the filename as a link, titled with the full asset URL", () => {
   expect(link).toHaveAttribute("href", URL);
 });
 
+const HIT = {
+  pages: [],
+  blocks: [{ uid: "blk1", page_title: "Charts", snippet: "…" }],
+};
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status, headers: { "Content-Type": "application/json" },
+  });
+}
+
 it("click resolves the referencing block and navigates to it", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true, status: 200,
-    json: async () => ({
-      pages: [],
-      blocks: [{ uid: "blk1", page_title: "Charts", snippet: "…" }],
-    }),
-  }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(HIT)));
   mount();
   fireEvent.click(screen.getByRole("link", { name: "IMG_0868.jpeg" }));
   await waitFor(() =>
@@ -68,13 +73,7 @@ it("click resolves the referencing block and navigates to it", async () => {
 });
 
 it("shift-click resolves the referencing block and opens it in the sidebar", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true, status: 200,
-    json: async () => ({
-      pages: [],
-      blocks: [{ uid: "blk1", page_title: "Charts", snippet: "…" }],
-    }),
-  }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(HIT)));
   const openInSidebar = mount();
   fireEvent.click(screen.getByRole("link", { name: "IMG_0868.jpeg" }), { shiftKey: true });
   await waitFor(() => expect(openInSidebar).toHaveBeenCalledWith("Charts", "blk1"));
@@ -83,13 +82,7 @@ it("shift-click resolves the referencing block and opens it in the sidebar", asy
 });
 
 it("Enter on a focused link behaves like a click", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true, status: 200,
-    json: async () => ({
-      pages: [],
-      blocks: [{ uid: "blk1", page_title: "Charts", snippet: "…" }],
-    }),
-  }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(HIT)));
   mount();
   const link = screen.getByRole("link", { name: "IMG_0868.jpeg" });
   link.focus();
@@ -99,10 +92,7 @@ it("Enter on a focused link behaves like a click", async () => {
 });
 
 it("no referencing block found: opens the raw asset instead", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true, status: 200,
-    json: async () => ({ pages: [], blocks: [] }),
-  }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ pages: [], blocks: [] })));
   const openSpy = vi.fn();
   vi.stubGlobal("open", openSpy);
   mount();
@@ -112,11 +102,7 @@ it("no referencing block found: opens the raw asset instead", async () => {
 });
 
 it("lookup failure: falls back to opening the raw asset", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: false, status: 500,
-    json: async () => ({ detail: "boom" }),
-    clone(): unknown { return this; },
-  }));
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ detail: "boom" }, 500)));
   const openSpy = vi.fn();
   vi.stubGlobal("open", openSpy);
   mount();

@@ -576,7 +576,7 @@ button { font: inherit; }
 .dropped-draft-text { white-space: pre-wrap; overflow-wrap: anywhere;
   font-family: var(--font-mono); }
 .dropped-draft textarea { width: 100%; font: inherit; }
-.dropped-draft button { margin: 2px 4px; }
+.dropped-draft button, .stale-build button { margin: 2px 4px; }
 
 /* == Outline rows == */
 /* line-height set here (not on .block-text) so the edit-mode textarea

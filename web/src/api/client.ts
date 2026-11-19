@@ -5,6 +5,10 @@
 // doesn't cover throw OfflineError so views can show a clear online-only
 // state instead of a network failure.
 import type { components } from "./types";
+import { noteServedBuild } from "../staleBuild";
+
+/** The server's build id on every response (server build_stamp.py). */
+const BUILD_HEADER = "X-Pkm-Build";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -279,6 +283,7 @@ export async function apiFetch<T>(
       throw e;
     }
     watch?.rearm();
+    noteServedBuild(res.headers.get(BUILD_HEADER));
     if (res.status === 401) {
       onUnauthorized();
       throw await errorFor(res, path);
@@ -327,6 +332,7 @@ export async function apiDownload(
 ): Promise<{ blob: Blob; filename: string | undefined }> {
   if (gateway?.offline()) throw new OfflineError(path);
   const res = await fetch(path);
+  noteServedBuild(res.headers.get(BUILD_HEADER));
   if (res.status === 401) {
     onUnauthorized();
     throw new ApiError(401, path, await readErrorDetail(res));
